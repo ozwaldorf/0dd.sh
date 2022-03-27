@@ -260,11 +260,10 @@ func (h *handler) read(w http.ResponseWriter, req *http.Request) {
 		if err != nil {
 			if _, ok := err.(pasteNotFound); ok {
 				http.Error(w, "not found", http.StatusNotFound)
-
 			} else {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 			}
-			log.Printf("[READ ] _%s/%s (error: %s)\n", vars["dir"], vars["file"], err.Error())
+			log.Printf("[ERROR] _%s/%s (error: %s)\n", vars["dir"], vars["file"], err.Error())
 			return
 		}
 		log.Printf("[READ ] _%s/%s\n", vars["dir"], vars["file"])
@@ -302,7 +301,7 @@ func (h *handler) post(w http.ResponseWriter, req *http.Request) {
 		default:
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
-		log.Printf("[WRITE] %s (error: %s)\n", vars["file"], err.Error())
+		log.Printf("[ERROR] %s (error: %s)\n", vars["file"], err.Error())
 		return
 	}
 	log.Printf("[WRITE] %s\n", key)
@@ -333,7 +332,7 @@ func (h *handler) put(w http.ResponseWriter, req *http.Request) {
 		default:
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
-		log.Printf("[WRITE] %s (error: %s)\n", vars["file"], err.Error())
+		log.Printf("[ERROR] %s (error: %s)\n", vars["file"], err.Error())
 		return
 	}
 

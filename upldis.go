@@ -19,6 +19,9 @@ package main
 
 import (
 	"bytes"
+	"os"
+	"path"
+
 	//"encoding/base64"
 	"fmt"
 	//virustotal "github.com/dutchcoders/go-virustotal"
@@ -34,7 +37,6 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/peterbourgon/diskv"
-	md "github.com/shurcooL/github_flavored_markdown"
 )
 
 /* --- config --- */
@@ -47,11 +49,11 @@ const (
 	urlCharset   = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789" // available characters the url can use
 
 	/* --- database settings --- */
-	basePath  = "pastes"          // dir that the db is located in
+	basePath  = "pastes"          // base paste storage dir
 	cacheSize = 128 * 1024 * 1024 // 128 MB
 
 	/* --- server settings --- */
-	useSSL      = true
+	useSSL      = false
 	httpsPort   = 8443                 // ssl port
 	sslCertPath = "cert/fullchain.cer" // ssl cert
 	sslKeyPath  = "cert/upld.info.key" // ssl priv key
@@ -59,111 +61,92 @@ const (
 	bindAddress = ""                   // bind address
 )
 
-var usageText = struct {
-	index, static, temp, md string
-}{
-	index: `
-    Custom urls are also available. Simply append a sub directory to the URL
-    and use upld.is exactly like before! The custom urls will also
-    automatically generate the usage page.
-    ( EXAMPLE: upld.is/custom/ )
-    `,
-	static: `
-    Static file server. Serves files with the correct metadata for the file.
-    `,
-	temp: `
-    /temp/ is a temporary paste subdir. Once viewed, (a single time), pastes
-    are wiped from the server, never to be seen again.
-    `,
-	md: `
-    /md/ is a Github flavored markdown parser. Files uploaded here will be
-    rendered in html using the same syntax as Github's markdown.
-    `,
-}
-
 /* if you host your own I'd appreciate a to mention comp.st
-*  Need to make the title dynamic etc */
+ *  Need to make the title dynamic etc */
 const standardUsageText = `
-<!doctype html>
-<html>
-<head>
-<title>{{.BaseURL}}{{.SubDir}} - command line pastebin and more</title>
-<style>
-a {
-	text-decoration: none;
-	color: #2196F3;
-}
-body {
-	background-color: #263238;
-	color: #fff;
-}
-.textareaContainer {
-	display: block;
-	padding: 0;
-}
-textarea {
-	background-color: #455A64;
-	color: #fff;
-	width: 100%;
-	margin: 0;
-	padding: 0;
-	border-width: 0;
-}
-</style>
+ <!doctype html>
+ <html>
+ <head>
+ <title>{{.BaseURL}}{{.SubDir}} - command line pastebin and more</title>
+ <style>
+ body {
+   background-color: #000000;
+   color: #fff;
+   padding: 0;
+   margin: 0;
+   height: 100vh;
+   width: 100vw;
+ }
+ textarea {
+   background-color: #212121;
+   color: #fff;
+   width: 99vw;
+   height: 96vh;
+   margin: 0;
+   padding: 0;
+   border-width: 0;
+ }
+ button {
+   background-color: #484848;
+   padding: 0;
+   margin: 0;
+   width: 99vw;
+   height: 3vh;
+   border-width: 0;
 
-</head>
-<body>
-<pre>
-{{.BaseURL}}(1)                          UPLD.IS                          {{.BaseURL}}(1)
+ }
+ </style>
+ 
+ </head>
+ <body>
+ <form action="http://{{.BaseURL}}" spellcheck="false" method="POST" accept-charset="UTF-8">
+ <button type="submit"> paste it </button>
+ <br>
+ <textarea name="p">
+ {{.BaseURL}}(1)                          UPLD.IS                          {{.BaseURL}}(1)
+ 
+ NAME
+     {{.BaseURL}} - no bullshit ipfs pastebin
+ 
+ SYNOPSIS
+     # File Upload
+     curl {{.BaseURL}} -T &lt;file path&gt;
+ 
+     # Command output
+     &lt;command&gt; | curl {{.BaseURL}}{{.SubDir}} -T -
+ 
+ DESCRIPTION
+     A simple, no bullshit command line pastebin, that stores files on IPFS. Pastes are
+     created using HTTP PUT, or POST requests. A url is returned, but you can also view the
+     file with the ipfs hash/name.
 
-NAME
-    {{.BaseURL}}{{.SubDir}} - command line pastebin and more
+     Add ?&lt;lang&gt to resulting url for line numbers and syntax highlighting. 
+     Available lexars (short notation) can be found at http://pygments.org/docs/lexers/
+ 
+ INSTALL
+     Add this to your shell's .rc for an easy to use alias for uploading files. 
+     
+     alias upld_file='f(){ curl {{.BaseURL}} -T $1; unset -f f; }; f'
+     alias upld_output='curl {{.BaseURL}} -T -'
+ 
+ EXAMPLE
+     $ echo '{{.BaseURL}} is awesome!' | curl {{.BaseURL}} -T -
+       {{.Scheme}}://{{.BaseURL}}/QmQ9w87HaYUwXHFiXoovhqmpKpyqRW1gHDFvXZnJAvKuPw
+     $ curl {{.BaseURL}} -T filename.txt
+       {{.Scheme}}://{{.BaseURL}}/<hash>/filename.txt
 
-SYNOPSIS
-    #File Upload
-    curl {{.BaseURL}}{{.SubDir}} -T &lt;file path&gt;
-
-    # Command output
-    &lt;command&gt; | curl {{.BaseURL}}{{.SubDir}} -F{{.FormVal}}=\&lt;-
-
-DESCRIPTION
-    A simple, no bullshit command line pastebin. Pastes are created using HTTP
-    POST requests. The url is then returned and can be accessed from there.
-    {{.DirUsage}}
-    Add <a href='http://pygments.org/docs/lexers/'>?&lt;lang&gt;</a> to resulting url for line numbers and syntax highlighting
-
-INSTALL
-    Add this to your shell's .rc for an easy to use alias. 
-    Usage: upld &lt;file_path&gt;
-    
-    alias upld='f(){ curl {{.BaseURL}} -T $1; unset -f f; }; f'
-
-EXAMPLE
-    $ echo '{{.BaseURL}} is awesome!' | curl {{.BaseURL}}{{.SubDir}} -F{{.FormVal}}=\&lt;-
-      {{.BaseURL}}{{.SubDir}}/TEST
-    $ curl {{.BaseURL}}{{.SubDir}}/TEST
-      {{.BaseURL}} is awesome!
-    $ # FILE UPLOAD
-    $ curl {{.BaseURL}}{{.SubDir}} -T filename.txt
-      {{.BaseURL}}{{.SubDir}}/0x0x.txt
-    $ # ALIAS
-    $ upld filename.txt
-      {{.BaseURL}}/1x1x.txt
-
-UNIQUE SUBDIRS
-    <a href="https://{{.BaseURL}}/static/">{{.BaseURL}}/static/</a> is a static file server.
-    <a href="https://{{.BaseURL}}/temp/">{{.BaseURL}}/temp/</a> is for single use pastes.
-    <a href="https://{{.BaseURL}}/md/">{{.BaseURL}}/md/</a> Github flavored markdown parser.
-
-SEE ALSO
-    {{.BaseURL}} is a free service brought to you by oss, (c) 2017
-
-WEB UPLOAD
-</pre>
-    <form action="https://{{.BaseURL}}{{.SubDir}}" method="POST" accept-charset="UTF-8"><label class="textareaContainer"><textarea name="p" rows="24" placeholder="type paste..."></textarea></label><br><button type="submit">paste it</button></form>
-</body>
-</html>
-`
+     # ALIAS
+     $ upld_file filename.go
+       {{.Scheme}}://{{.BaseURL}}/<hash>/filename.go
+     $ ps -aux | upld_output
+ 
+ SEE ALSO
+     {{.BaseURL}} is a free service brought to you by oss, (c) 2022
+ </textarea>
+ </form>
+ </body>
+ </html>
+ `
 
 var reg, _ = regexp.Compile("(\\.[^.]+)$")
 
@@ -198,28 +181,13 @@ type handler struct {
 	disk *diskv.Diskv
 }
 
-func readPaste(h *diskv.Diskv, key string) (paste string, err error) {
+func readPaste(key string) (paste []byte, err error) {
 	var rawPaste []byte
-	rawPaste, err = h.Read(key) //key is the paste name
-	if err != nil {
-		err = pasteNotFound{}
-		return
-	}
-	paste = string(rawPaste)
+	paste = rawPaste
 	return
 }
 
-func deletePaste(h *diskv.Diskv, key string) (err error) {
-	_, err = h.Read(key) //key is the paste name
-	if err != nil {
-		err = pasteNotFound{}
-		return
-	}
-	h.Erase(key)
-	return
-}
-
-func writePaste(h *diskv.Diskv, name string, data []byte) (key string, err error) {
+func writePaste(name string, data []byte) (key string, err error) {
 	if len(data) > maxPasteSize {
 		err = pasteTooLarge{}
 		return
@@ -227,12 +195,48 @@ func writePaste(h *diskv.Diskv, name string, data []byte) (key string, err error
 		err = pasteTooSmall{}
 		return
 	}
-	name = reg.FindString(name)
-	key = newID() + name
-	for h.Has(key) {
-		key = newID() + name // loop that shit til unique id
+
+	dirname := newID()
+	if name != "" {
+		if err := os.MkdirAll(path.Join("pastes", dirname), 0755); err != nil {
+			log.Fatal(err)
+		}
 	}
-	h.Write(key, data)
+
+	temp_file := path.Join("pastes", dirname, name)
+	f, err := os.Create(temp_file)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	f.Write(data)
+	f.Close()
+
+	// Add to IPFS
+	if name != "" {
+		// Named file (use a dir to preserve filename)
+		cmd := exec.Command("ipfs", "add", "-r", path.Join("pastes", dirname))
+		output, err := cmd.Output()
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		// Create a File URL and return
+		lines := strings.Split(string(output[:]), "\n")
+		words := strings.Split(lines[len(lines)-2], " ")
+		key = fmt.Sprintf("%s/%s", words[1], name)
+	} else {
+		// Unnamed file (use regular ipfs hash)
+		cmd := exec.Command("ipfs", "add", temp_file)
+		output, err := cmd.Output()
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		words := strings.Split(string(output[:]), " ")
+		key = words[1]
+	}
+
 	return
 }
 
@@ -247,19 +251,14 @@ func Highlight(code string, lexer string, key string) (string, error) {
 	return out.String(), err
 }
 
-func (h *handler) getCompost(w http.ResponseWriter, req *http.Request) {
+func (h *handler) read(w http.ResponseWriter, req *http.Request) {
 	vars := mux.Vars(req)
-	j := diskv.New(diskv.Options{
-		BasePath:     fmt.Sprintf("%s/_%s", basePath, vars["dir"]),
-		Transform:    flatTransform,
-		CacheSizeMax: cacheSize,
-	})
 
 	if useSSL {
 		w.Header().Add("Strict-Transport-Security", "max-age=63072000; includeSubDomains") //ssl lab bullshit
 	}
 	if vars["file"] != "" {
-		paste, err := readPaste(j, vars["file"])
+		paste, err := readPaste(vars["file"])
 		if err != nil {
 			if _, ok := err.(pasteNotFound); ok {
 				http.Error(w, "not found", http.StatusNotFound)
@@ -272,25 +271,22 @@ func (h *handler) getCompost(w http.ResponseWriter, req *http.Request) {
 		}
 		log.Printf("[READ ] _%s/%s\n", vars["dir"], vars["file"])
 
-		var finPaste string
-		if vars["dir"] == "md" {
-			finPaste = string(md.Markdown([]byte(paste)))
-			w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		} else if req.URL.RawQuery != "" {
-			finPaste, err = Highlight(paste, req.URL.RawQuery, vars["file"])
-			w.Header().Set("Content-Type", "text/html; charset=utf-8")
-			if err != nil {
-				w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-				finPaste = paste
-			}
-		} else {
-			w.Header().Set("Content-Type", "text/plain; charset=utf-8") //rewrite this so it isn't fucking shit, I'm disgusted wit u
-			finPaste = paste
-		}
-		fmt.Fprintf(w, "%s", finPaste)
-		if vars["dir"] == "temp" {
-			deletePaste(j, vars["file"])
-		}
+		// var finPaste string
+		// if vars["dir"] == "md" {
+		// 	finPaste = string(md.Markdown([]byte(paste)))
+		// 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		// } else if req.URL.RawQuery != "" {
+		// 	finPaste, err = Highlight(string(paste), req.URL.RawQuery, vars["file"])
+		// 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		// 	if err != nil {
+		// 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		// 		finPaste = string(paste)
+		// 	}
+		// } else {
+		// 	w.Header().Set("Content-Type", "text/plain; charset=utf-8") //rewrite this so it isn't fucking shit, I'm disgusted wit u
+		// 	finPaste = string(paste)
+		// }
+		fmt.Fprintf(w, "%s", paste)
 
 		return
 	}
@@ -299,14 +295,8 @@ func (h *handler) getCompost(w http.ResponseWriter, req *http.Request) {
 func (h *handler) post(w http.ResponseWriter, req *http.Request) {
 	vars := mux.Vars(req)
 	body := req.FormValue(formVal)
-	dir := vars["dir"]
-	j := diskv.New(diskv.Options{
-		BasePath:     fmt.Sprintf("%s/_%s", basePath, dir),
-		Transform:    flatTransform,
-		CacheSizeMax: cacheSize,
-	})
 
-	key, err := writePaste(j, vars["file"], []byte(body))
+	key, err := writePaste(vars["file"], []byte(body))
 	if err != nil {
 		switch err.(type) {
 		case pasteTooLarge, pasteTooSmall:
@@ -314,21 +304,17 @@ func (h *handler) post(w http.ResponseWriter, req *http.Request) {
 		default:
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
-		log.Printf("[WRITE] _%s/%s (error: %s)\n", vars["dir"], vars["file"], err.Error())
+		log.Printf("[WRITE] %s (error: %s)\n", vars["file"], err.Error())
 		return
 	}
-	log.Printf("[WRITE] _%s/%s\n", vars["dir"], key)
-
-	if dir != "" {
-		dir = dir + "/"
-	}
+	log.Printf("[WRITE] %s\n", key)
 	var scheme string
 	if req.TLS != nil {
 		scheme = "https://"
 	} else {
 		scheme = "http://"
 	}
-	fmt.Fprintf(w, "%s%s/%s%s\n", scheme, req.Host, dir, key)
+	fmt.Fprintf(w, "%s%s/%s\n", scheme, req.Host, key)
 	return
 }
 
@@ -341,14 +327,7 @@ func (h *handler) put(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	dir := vars["dir"]
-	j := diskv.New(diskv.Options{
-		BasePath:     fmt.Sprintf("%s/_%s", basePath, dir),
-		Transform:    flatTransform,
-		CacheSizeMax: cacheSize,
-	})
-
-	key, err := writePaste(j, vars["file"], body)
+	key, err := writePaste(vars["file"], body)
 	if err != nil {
 		switch err.(type) {
 		case pasteTooLarge, pasteTooSmall:
@@ -356,22 +335,19 @@ func (h *handler) put(w http.ResponseWriter, req *http.Request) {
 		default:
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
-		log.Printf("[WRITE] _%s/%s (error: %s)\n", vars["dir"], vars["file"], err.Error())
+		log.Printf("[WRITE] %s (error: %s)\n", vars["file"], err.Error())
 		return
 	}
 
-	log.Printf("[WRITE] _%s/%s\n", vars["dir"], key)
+	log.Printf("[WRITE] %s (%s)\n", vars["file"], key)
 
-	if dir != "" {
-		dir = dir + "/"
-	}
 	var scheme string
 	if req.TLS != nil {
 		scheme = "https://"
 	} else {
 		scheme = "http://"
 	}
-	fmt.Fprintf(w, "%s%s/%s%s\n", scheme, req.Host, dir, key)
+	fmt.Fprintf(w, "%s%s/%s\n", scheme, req.Host, key)
 	return
 }
 
@@ -386,21 +362,18 @@ func (h *handler) usage(w http.ResponseWriter, req *http.Request) {
 	trailingSlash := (map[bool]string{true: "/", false: ""})[vars["dir"] != ""]
 	subDir := trailingSlash + vars["dir"]
 	baseURL := req.Host
-	var dirUsage string
-	switch vars["dir"] {
-	case "temp":
-		dirUsage = usageText.temp
-	case "md":
-		dirUsage = usageText.md
-	default:
-		dirUsage = usageText.index
+	var scheme string
+	if req.TLS != nil {
+		scheme = "https"
+	} else {
+		scheme = "http"
 	}
 	data := struct {
-		BaseURL  string
-		FormVal  string
-		DirUsage string
-		SubDir   string
-	}{baseURL, formVal, dirUsage, subDir}
+		BaseURL string
+		FormVal string
+		Scheme  string
+		SubDir  string
+	}{baseURL, formVal, scheme, subDir}
 	_ = tmpl.Execute(w, data)
 }
 
@@ -408,23 +381,20 @@ func newHandler() http.Handler {
 	h := handler{}
 	/* add config for static subdir */
 	r := mux.NewRouter().StrictSlash(false)
+	// r.PathPrefix("/static/").Handler(http.StripPrefix("/static/", http.FileServer(http.Dir(fmt.Sprintf("%s/_static", basePath))))).Methods("GET")
+	// r.HandleFunc("/{dir}/", h.usage).Methods("GET")
+	// r.HandleFunc("/{dir}/{file}", h.read).Methods("GET")
+	// r.HandleFunc("/{dir}/{file}", h.put).Methods("PUT")
+	// r.HandleFunc("/{dir}/", h.put).Methods("PUT")
 
-	r.HandleFunc("/{dir}/", h.usage).Methods("GET")
-	r.PathPrefix("/static/").Handler(http.StripPrefix("/static/", http.FileServer(http.Dir(fmt.Sprintf("%s/_static", basePath))))).Methods("GET")
 	r.PathPrefix("/.well-known/").Handler(http.StripPrefix("/.well-known/", http.FileServer(http.Dir(".well-known")))) // letsencrypt
-	r.HandleFunc("/{dir}/{file}", h.getCompost).Methods("GET")
-	r.HandleFunc("/{file}", h.getCompost).Methods("GET")
+
 	r.HandleFunc("/", h.usage).Methods("GET")
+	r.HandleFunc("/{file}", h.read).Methods("GET")
 
-	r.HandleFunc("/{dir}/{file}", h.post).Methods("POST")
-	r.HandleFunc("/{dir}/", h.post).Methods("POST")
-	r.HandleFunc("/{dir}", h.post).Methods("POST")
 	r.HandleFunc("/", h.post).Methods("POST")
-
-	r.HandleFunc("/{dir}/{file}", h.put).Methods("PUT")
-	r.HandleFunc("/{dir}/", h.put).Methods("PUT")
 	r.HandleFunc("/{file}", h.put).Methods("PUT")
-	r.HandleFunc("/", h.put).Methods("PUT")
+
 	return r
 }
 

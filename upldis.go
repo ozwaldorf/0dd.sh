@@ -22,9 +22,7 @@ import (
 	"os"
 	"path"
 
-	//"encoding/base64"
 	"fmt"
-	//virustotal "github.com/dutchcoders/go-virustotal"
 	"html/template"
 	"io/ioutil"
 	"log"

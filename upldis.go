@@ -33,6 +33,7 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+	md "github.com/shurcooL/github_flavored_markdown"
 )
 
 /* --- config --- */
@@ -62,38 +63,43 @@ const htmlPrefix = `<!doctype html>
   <head>
     <title>{{.BaseURL}}{{.SubDir}} - command line pastebin and more</title>
     <style>
-      body {
+      body, textarea, button, input {
         background-color: #000000;
         color: #fff;
         padding: 0;
         margin: 0;
-        height: 100vh;
-        width: 100vw;
+        height: 100%;
+        width: 100%;
+        border-width: 0;
+      }
+      div {
+        padding: 0;
+        margin: 4px 0 5px;
       }
       textarea {
         background-color: #212121;
-        color: #fff;
-        width: 99vw;
-        height: 96vh;
-        margin: 0;
-        padding: 0;
-        border-width: 0;
+        height: 95vh;
       }
       button {
         background-color: #484848;
-        color: #fff;
-        padding: 0;
-        margin: 0;
-        width: 99vw;
+        width: 25%;
         height: 3vh;
-        border-width: 0;
+        display: inline-block;
+        border-width: 3px;
+      }
+      input {
+        background-color: #484848;
+        width: 75%;
+        height: 3vh;
+        display: inline-block;
       }
     </style>
   </head>
 <body>
   <form action="{{.Scheme}}://{{.BaseURL}}" spellcheck="false" method="POST" accept-charset="UTF-8">
-    <button type="submit">paste to ipfs</button>
-    <br>
+    <div>
+      <input name="file" placeholder="(enter optional filename...)"/><button type="submit">paste to ipfs</button>
+    </div>
     <textarea name="p">
 
  (delete this text to type a paste)
@@ -121,9 +127,6 @@ const standardUsageText = `{{.BaseURL}}(1)                              UPLD.IS 
      A simple, no bullshit command line pastebin, that stores files on IPFS. Pastes are
      created using HTTP PUT, or POST requests. A url is returned, but you can also view
      the file with the ipfs hash/name.
-
-     Add ?&lt;lang&gt to resulting url for line numbers and syntax highlighting. 
-     Available lexars (short notation) can be found at http://pygments.org/docs/lexers/
  
  INSTALL
      Add this to your shell's .rc for an easy to use alias for uploading files. 
@@ -141,6 +144,12 @@ const standardUsageText = `{{.BaseURL}}(1)                              UPLD.IS 
      $ upld_file filename.go
        {{.Scheme}}://{{.BaseURL}}/<hash>/filename.go
      $ ps -aux | upld_output
+
+ FILE VIEW
+     Add '?md' to the paste url to parse a github flavored markdown file into an html 
+     file. Add '?&lt;lang&gt' for line numbers and syntax
+     highlighting. Available lexars (short notation) can be found at 
+     http://pygments.org/docs/lexers/
  
  SEE ALSO
      {{.BaseURL}} is a free service brought to you by Ossian, (c) 2022
@@ -157,6 +166,7 @@ type (
 	pasteTooLarge struct{}
 	pasteTooSmall struct{}
 	pasteNotFound struct{}
+	pygmentsError struct{}
 )
 
 func (e pasteTooLarge) Error() string {
@@ -164,6 +174,9 @@ func (e pasteTooLarge) Error() string {
 }
 func (e pasteTooSmall) Error() string { return "paste too small" }
 func (e pasteNotFound) Error() string { return "unknown ipfs hash, or not a file" }
+func (e pygmentsError) Error() string {
+	return "unknown pygements lexar shortcode. view available lexars at https://pygments.org/docs/lexers/"
+}
 
 func newID() string {
 	urlID := make([]byte, urlLength)
@@ -194,7 +207,7 @@ func writePaste(name string, data []byte) (key string, err error) {
 
 	temp_dir := path.Join("pastes", newID())
 	if name != "" {
-		if err := os.MkdirAll(path.Join("pastes", temp_dir), 0755); err != nil {
+		if err := os.MkdirAll(temp_dir, 0755); err != nil {
 			return "", err
 		}
 	}
@@ -239,13 +252,16 @@ func writePaste(name string, data []byte) (key string, err error) {
 }
 
 func Highlight(code string, lexer string, key string) (string, error) {
-	cmd := exec.Command("pygmentize", "-l"+lexer, "-fhtml", "-O encoding=utf-8,full,style=borland,linenos=table,title="+key) //construct and exec html lexar
+	cmd := exec.Command("pygmentize", "-l"+lexer, "-fhtml", "-O encoding=utf-8,full,style=native,linenos=table,title="+key) //construct and exec html lexar
 	cmd.Stdin = strings.NewReader(code)
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	err := cmd.Run()
+	if err != nil {
+		log.Printf(err.Error())
+	}
 	return out.String(), err
 }
 
@@ -276,27 +292,23 @@ func (h *handler) read(w http.ResponseWriter, req *http.Request) {
 		}
 		log.Printf("[READ ] %s\n", key)
 
-		// var finPaste string
-		// if vars["dir"] == "md" {
-		// 	finPaste = string(md.Markdown([]byte(paste)))
-		// 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		// } else
-		// } else {
-		// 	w.Header().Set("Content-Type", "text/plain; charset=utf-8") //rewrite this so it isn't fucking shit, I'm disgusted wit u
-		// 	finPaste = string(paste)
-		// }
+		if req.URL.RawQuery != "" {
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			switch req.URL.RawQuery {
+			case "md":
+				paste = md.Markdown([]byte(paste))
+			default:
+				syntax, err := Highlight(string(paste), req.URL.RawQuery, key)
+				if err == nil {
+					paste = []byte(syntax)
+				} else {
+					fmt.Fprintf(w, "error: %s", pygmentsError{}.Error())
+					return
+				}
+			}
+		}
 
-		// Highlight syntax
-		// if req.URL.RawQuery != "" {
-		// 	finPaste, err := Highlight(string(paste), req.URL.RawQuery, vars["file"])
-		// 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		// 	if err != nil {
-		// 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		// 		finPaste = string(paste)
-		// 	}
-		// }
 		fmt.Fprintf(w, "%s", paste)
-
 		return
 	}
 }

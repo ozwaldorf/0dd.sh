@@ -99,7 +99,7 @@ const standardUsageText = `
  <button type="submit"> paste it </button>
  <br>
  <textarea name="p">
- {{.BaseURL}}(1)                         UPLD.IS                         {{.BaseURL}}(1)
+ {{.BaseURL}}(1)                              UPLD.IS                              {{.BaseURL}}(1)
  
  NAME
      {{.BaseURL}} - no bullshit ipfs pastebin

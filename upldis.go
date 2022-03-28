@@ -49,7 +49,7 @@ const (
 	cacheSize = 128 * 1024 * 1024 // 128 MB
 
 	/* --- server settings --- */
-	useSSL      = false
+	useSSL      = true
 	httpsPort   = 8443                 // ssl port
 	sslCertPath = "cert/fullchain.cer" // ssl cert
 	sslKeyPath  = "cert/upld.info.key" // ssl priv key

@@ -228,7 +228,7 @@ func writePaste(name string, data []byte) (key string, err error) {
 		key = words[1]
 	}
 
-	err = os.Remove(t)
+	err = os.Remove(temp_dir)
 
 	return
 }

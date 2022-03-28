@@ -138,7 +138,7 @@ const standardUsageText = `
  
  SEE ALSO
      {{.BaseURL}} is a free service brought to you by Ossian, (c) 2022
-		 Source is available at https://github.com/ozwaldorf/upld.is
+     Source is available at https://github.com/ozwaldorf/upld.is
  </textarea>
  </form>
  </body>

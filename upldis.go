@@ -139,6 +139,8 @@ const standardUsageText = `
  SEE ALSO
      {{.BaseURL}} is a free service brought to you by Ossian, (c) 2022
      Source is available at https://github.com/ozwaldorf/upld.is
+
+ (delete this text to type a paste)
  </textarea>
  </form>
  </body>
@@ -185,14 +187,14 @@ func writePaste(name string, data []byte) (key string, err error) {
 		return
 	}
 
-	dirname := newID()
+	temp_dir := path.Join("pastes", newID())
 	if name != "" {
-		if err := os.MkdirAll(path.Join("pastes", dirname), 0755); err != nil {
+		if err := os.MkdirAll(path.Join("pastes", temp_dir), 0755); err != nil {
 			return "", err
 		}
 	}
 
-	temp_file := path.Join("pastes", dirname, name)
+	temp_file := path.Join(temp_dir, name) // temp_dir = file if unnamed
 	f, err := os.Create(temp_file)
 	if err != nil {
 		return "", err
@@ -204,7 +206,7 @@ func writePaste(name string, data []byte) (key string, err error) {
 	// Add to IPFS
 	if name != "" {
 		// Named file (use a dir to preserve filename)
-		cmd := exec.Command("ipfs", "add", "-r", path.Join("pastes", dirname))
+		cmd := exec.Command("ipfs", "add", "-r", temp_dir)
 		output, err := cmd.Output()
 		if err != nil {
 			return "", err
@@ -225,6 +227,8 @@ func writePaste(name string, data []byte) (key string, err error) {
 		words := strings.Split(string(output[:]), " ")
 		key = words[1]
 	}
+
+	err = os.Remove(t)
 
 	return
 }
@@ -391,6 +395,7 @@ func newHandler() http.Handler {
 
 	r.HandleFunc("/", h.post).Methods("POST")
 	r.HandleFunc("/{file}", h.put).Methods("PUT")
+	r.HandleFunc("/", h.put).Methods("PUT")
 
 	return r
 }

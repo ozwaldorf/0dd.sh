@@ -131,19 +131,19 @@ const standardUsageText = `{{.BaseURL}}(1)                              UPLD.IS 
  INSTALL
      Add this to your shell's .rc for an easy to use alias for uploading files. 
      
-     alias upld_file='f(){ curl {{.BaseURL}} -T $1; unset -f f; }; f'
-     alias upld_output='curl {{.BaseURL}} -T -'
+     alias upld='f(){ curl {{.BaseURL}} -T $1; unset -f f; }; f'
  
  EXAMPLE
      $ ps -aux | curl {{.BaseURL}} -T -
-       {{.Scheme}}://{{.BaseURL}}/QmbsN8cyhk4wpv29RKCf3ZrRZj7TWK3careKmv2btezbBu
+       {{.Scheme}}://{{.BaseURL}}/<hash>
      $ curl {{.BaseURL}} -T filename.png
        {{.Scheme}}://{{.BaseURL}}/<hash>/filename.png
 
      # ALIAS
-     $ upld_file filename.go
+     $ upld filename.go
        {{.Scheme}}://{{.BaseURL}}/<hash>/filename.go
-     $ ps -aux | upld_output
+     $ upld <<< ps -aux
+       {{.Scheme}}://{{.BaseURL}}/<hash>
 
  FILE VIEW
      Add '?md' to the paste url to parse a github flavored markdown file into an html 
@@ -374,15 +374,15 @@ func (h *handler) put(w http.ResponseWriter, req *http.Request) {
 
 func (h *handler) usage(w http.ResponseWriter, req *http.Request) {
 	vars := mux.Vars(req)
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-
 	var usageText string
-
 	agent := req.Header.Get("User-Agent")
-	if agent[:4] != "curl" {
-		usageText = strings.Join([]string{htmlPrefix, standardUsageText, htmlSuffix}, "")
-	} else {
-		usageText = standardUsageText
+	if len(agent) >= 4 {
+		if agent[:4] != "curl" {
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			usageText = strings.Join([]string{htmlPrefix, standardUsageText, htmlSuffix}, "")
+		} else {
+			usageText = standardUsageText
+		}
 	}
 
 	tmpl, err := template.New("usage").Parse(usageText)

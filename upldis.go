@@ -114,7 +114,7 @@ const standardUsageText = `
  DESCRIPTION
      A simple, no bullshit command line pastebin, that stores files on IPFS. Pastes are
      created using HTTP PUT, or POST requests. A url is returned, but you can also view
-		 the file with the ipfs hash/name.
+     the file with the ipfs hash/name.
 
      Add ?&lt;lang&gt to resulting url for line numbers and syntax highlighting. 
      Available lexars (short notation) can be found at http://pygments.org/docs/lexers/

@@ -29,12 +29,10 @@ import (
 	"math/rand"
 	"net/http"
 	"os/exec"
-	"regexp"
 	"strings"
 	"time"
 
 	"github.com/gorilla/mux"
-	"github.com/peterbourgon/diskv"
 )
 
 /* --- config --- */
@@ -128,10 +126,10 @@ const standardUsageText = `
      alias upld_output='curl {{.BaseURL}} -T -'
  
  EXAMPLE
-     $ echo '{{.BaseURL}} is awesome!' | curl {{.BaseURL}} -T -
-       {{.Scheme}}://{{.BaseURL}}/QmQ9w87HaYUwXHFiXoovhqmpKpyqRW1gHDFvXZnJAvKuPw
-     $ curl {{.BaseURL}} -T filename.txt
-       {{.Scheme}}://{{.BaseURL}}/<hash>/filename.txt
+     $ ps -aux | curl {{.BaseURL}} -T -
+       {{.Scheme}}://{{.BaseURL}}/QmbsN8cyhk4wpv29RKCf3ZrRZj7TWK3careKmv2btezbBu
+     $ curl {{.BaseURL}} -T filename.png
+       {{.Scheme}}://{{.BaseURL}}/<hash>/filename.png
 
      # ALIAS
      $ upld_file filename.go
@@ -139,29 +137,26 @@ const standardUsageText = `
      $ ps -aux | upld_output
  
  SEE ALSO
-     {{.BaseURL}} is a free service brought to you by oss, (c) 2022
+     {{.BaseURL}} is a free service brought to you by Ossian, (c) 2022
+		 Source is available at https://github.com/ozwaldorf/upld.is
  </textarea>
  </form>
  </body>
  </html>
  `
 
-var reg, _ = regexp.Compile("(\\.[^.]+)$")
-
 // errors n shit
 type (
 	pasteTooLarge struct{}
 	pasteTooSmall struct{}
 	pasteNotFound struct{}
-	pasteExists   struct{}
 )
 
 func (e pasteTooLarge) Error() string {
 	return fmt.Sprintf("paste too large (maximum size %d bytes)", maxPasteSize)
 }
 func (e pasteTooSmall) Error() string { return "paste too small" }
-func (e pasteNotFound) Error() string { return "404 not found" }
-func (e pasteExists) Error() string   { return "file exists" }
+func (e pasteNotFound) Error() string { return "unknown ipfs hash, or not a file" }
 
 func newID() string {
 	urlID := make([]byte, urlLength)
@@ -171,17 +166,13 @@ func newID() string {
 	return string(urlID)
 }
 
-func flatTransform(s string) []string {
-	return []string{}
-}
-
-type handler struct {
-	disk *diskv.Diskv
-}
-
 func readPaste(key string) (paste []byte, err error) {
-	var rawPaste []byte
-	paste = rawPaste
+	// Unnamed file (use regular ipfs hash)
+	cmd := exec.Command("ipfs", "cat", key)
+	paste, err = cmd.Output()
+	if err != nil {
+		err = pasteNotFound{}
+	}
 	return
 }
 
@@ -197,14 +188,14 @@ func writePaste(name string, data []byte) (key string, err error) {
 	dirname := newID()
 	if name != "" {
 		if err := os.MkdirAll(path.Join("pastes", dirname), 0755); err != nil {
-			log.Fatal(err)
+			return "", err
 		}
 	}
 
 	temp_file := path.Join("pastes", dirname, name)
 	f, err := os.Create(temp_file)
 	if err != nil {
-		log.Fatal(err)
+		return "", err
 	}
 
 	f.Write(data)
@@ -216,7 +207,7 @@ func writePaste(name string, data []byte) (key string, err error) {
 		cmd := exec.Command("ipfs", "add", "-r", path.Join("pastes", dirname))
 		output, err := cmd.Output()
 		if err != nil {
-			log.Fatal(err)
+			return "", err
 		}
 
 		// Create a File URL and return
@@ -228,7 +219,7 @@ func writePaste(name string, data []byte) (key string, err error) {
 		cmd := exec.Command("ipfs", "add", temp_file)
 		output, err := cmd.Output()
 		if err != nil {
-			log.Fatal(err)
+			return "", err
 		}
 
 		words := strings.Split(string(output[:]), " ")
@@ -249,39 +240,51 @@ func Highlight(code string, lexer string, key string) (string, error) {
 	return out.String(), err
 }
 
+type handler struct{}
+
 func (h *handler) read(w http.ResponseWriter, req *http.Request) {
 	vars := mux.Vars(req)
 
 	if useSSL {
 		w.Header().Add("Strict-Transport-Security", "max-age=63072000; includeSubDomains") //ssl lab bullshit
 	}
-	if vars["file"] != "" {
-		paste, err := readPaste(vars["file"])
+	if vars["hash"] != "" {
+		var key string
+		if vars["file"] != "" {
+			key = fmt.Sprintf("%s/%s", vars["hash"], vars["file"])
+		} else {
+			key = vars["hash"]
+		}
+		paste, err := readPaste(key)
 		if err != nil {
 			if _, ok := err.(pasteNotFound); ok {
 				http.Error(w, "not found", http.StatusNotFound)
 			} else {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 			}
-			log.Printf("[ERROR] _%s/%s (error: %s)\n", vars["dir"], vars["file"], err.Error())
+			log.Printf("[ERROR] %s (%s)\n", key, err.Error())
 			return
 		}
-		log.Printf("[READ ] _%s/%s\n", vars["dir"], vars["file"])
+		log.Printf("[READ ] %s\n", key)
 
 		// var finPaste string
 		// if vars["dir"] == "md" {
 		// 	finPaste = string(md.Markdown([]byte(paste)))
 		// 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		// } else if req.URL.RawQuery != "" {
-		// 	finPaste, err = Highlight(string(paste), req.URL.RawQuery, vars["file"])
+		// } else
+		// } else {
+		// 	w.Header().Set("Content-Type", "text/plain; charset=utf-8") //rewrite this so it isn't fucking shit, I'm disgusted wit u
+		// 	finPaste = string(paste)
+		// }
+
+		// Highlight syntax
+		// if req.URL.RawQuery != "" {
+		// 	finPaste, err := Highlight(string(paste), req.URL.RawQuery, vars["file"])
 		// 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		// 	if err != nil {
 		// 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		// 		finPaste = string(paste)
 		// 	}
-		// } else {
-		// 	w.Header().Set("Content-Type", "text/plain; charset=utf-8") //rewrite this so it isn't fucking shit, I'm disgusted wit u
-		// 	finPaste = string(paste)
 		// }
 		fmt.Fprintf(w, "%s", paste)
 
@@ -376,18 +379,15 @@ func (h *handler) usage(w http.ResponseWriter, req *http.Request) {
 
 func newHandler() http.Handler {
 	h := handler{}
-	/* add config for static subdir */
 	r := mux.NewRouter().StrictSlash(false)
-	// r.PathPrefix("/static/").Handler(http.StripPrefix("/static/", http.FileServer(http.Dir(fmt.Sprintf("%s/_static", basePath))))).Methods("GET")
-	// r.HandleFunc("/{dir}/", h.usage).Methods("GET")
-	// r.HandleFunc("/{dir}/{file}", h.read).Methods("GET")
-	// r.HandleFunc("/{dir}/{file}", h.put).Methods("PUT")
-	// r.HandleFunc("/{dir}/", h.put).Methods("PUT")
 
-	r.PathPrefix("/.well-known/").Handler(http.StripPrefix("/.well-known/", http.FileServer(http.Dir(".well-known")))) // letsencrypt
+	// certbot existing web server
+	r.PathPrefix("/.well-known/").Handler(http.StripPrefix("/.well-known/", http.FileServer(http.Dir(".well-known"))))
 
 	r.HandleFunc("/", h.usage).Methods("GET")
-	r.HandleFunc("/{file}", h.read).Methods("GET")
+
+	r.HandleFunc("/{hash}", h.read).Methods("GET")
+	r.HandleFunc("/{hash}/{file}", h.read).Methods("GET")
 
 	r.HandleFunc("/", h.post).Methods("POST")
 	r.HandleFunc("/{file}", h.put).Methods("PUT")

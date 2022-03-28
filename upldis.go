@@ -91,8 +91,8 @@ const htmlPrefix = `<!doctype html>
     </style>
   </head>
 <body>
-  <form action="http://{{.BaseURL}}" spellcheck="false" method="POST" accept-charset="UTF-8">
-    <button type="submit"> paste it </button>
+  <form action="{{.Scheme}}://{{.BaseURL}}" spellcheck="false" method="POST" accept-charset="UTF-8">
+    <button type="submit">paste to ipfs</button>
     <br>
     <textarea name="p">
 

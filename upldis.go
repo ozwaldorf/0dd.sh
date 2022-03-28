@@ -57,49 +57,52 @@ const (
 	bindAddress = ""                   // bind address
 )
 
+const htmlPrefix = `<!doctype html>
+  <html>
+  <head>
+    <title>{{.BaseURL}}{{.SubDir}} - command line pastebin and more</title>
+    <style>
+      body {
+        background-color: #000000;
+        color: #fff;
+        padding: 0;
+        margin: 0;
+        height: 100vh;
+        width: 100vw;
+      }
+      textarea {
+        background-color: #212121;
+        color: #fff;
+        width: 99vw;
+        height: 96vh;
+        margin: 0;
+        padding: 0;
+        border-width: 0;
+      }
+      button {
+        background-color: #484848;
+        color: #fff;
+        padding: 0;
+        margin: 0;
+        width: 99vw;
+        height: 3vh;
+        border-width: 0;
+      }
+    </style>
+  </head>
+<body>
+  <form action="http://{{.BaseURL}}" spellcheck="false" method="POST" accept-charset="UTF-8">
+    <button type="submit"> paste it </button>
+    <br>
+    <textarea name="p">
+
+ (delete this text to type a paste)
+
+ `
+
 /* if you host your own I'd appreciate a to mention comp.st
  *  Need to make the title dynamic etc */
-const standardUsageText = `
- <!doctype html>
- <html>
- <head>
- <title>{{.BaseURL}}{{.SubDir}} - command line pastebin and more</title>
- <style>
- body {
-   background-color: #000000;
-   color: #fff;
-   padding: 0;
-   margin: 0;
-   height: 100vh;
-   width: 100vw;
- }
- textarea {
-   background-color: #212121;
-   color: #fff;
-   width: 99vw;
-   height: 96vh;
-   margin: 0;
-   padding: 0;
-   border-width: 0;
- }
- button {
-   background-color: #484848;
-   padding: 0;
-   margin: 0;
-   width: 99vw;
-   height: 3vh;
-   border-width: 0;
-
- }
- </style>
- 
- </head>
- <body>
- <form action="http://{{.BaseURL}}" spellcheck="false" method="POST" accept-charset="UTF-8">
- <button type="submit"> paste it </button>
- <br>
- <textarea name="p">
- {{.BaseURL}}(1)                              UPLD.IS                              {{.BaseURL}}(1)
+const standardUsageText = `{{.BaseURL}}(1)                              UPLD.IS                              {{.BaseURL}}(1)
  
  NAME
      {{.BaseURL}} - no bullshit ipfs pastebin
@@ -110,6 +113,9 @@ const standardUsageText = `
  
      # Command output
      &lt;command&gt; | curl {{.BaseURL}}{{.SubDir}} -T -
+
+     # View help info
+     curl {{.BaseURL}}
  
  DESCRIPTION
      A simple, no bullshit command line pastebin, that stores files on IPFS. Pastes are
@@ -139,13 +145,12 @@ const standardUsageText = `
  SEE ALSO
      {{.BaseURL}} is a free service brought to you by Ossian, (c) 2022
      Source is available at https://github.com/ozwaldorf/upld.is
+ `
 
- (delete this text to type a paste)
- </textarea>
+const htmlSuffix = `</textarea>
  </form>
  </body>
- </html>
- `
+ </html>`
 
 // errors n shit
 type (
@@ -358,7 +363,17 @@ func (h *handler) put(w http.ResponseWriter, req *http.Request) {
 func (h *handler) usage(w http.ResponseWriter, req *http.Request) {
 	vars := mux.Vars(req)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	tmpl, err := template.New("usage").Parse(standardUsageText)
+
+	var usageText string
+
+	agent := req.Header.Get("User-Agent")
+	if agent[:4] != "curl" {
+		usageText = strings.Join([]string{htmlPrefix, standardUsageText, htmlSuffix}, "")
+	} else {
+		usageText = standardUsageText
+	}
+
+	tmpl, err := template.New("usage").Parse(usageText)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -373,12 +388,16 @@ func (h *handler) usage(w http.ResponseWriter, req *http.Request) {
 		scheme = "http"
 	}
 	data := struct {
+		HTML    bool
 		BaseURL string
 		FormVal string
 		Scheme  string
 		SubDir  string
-	}{baseURL, formVal, scheme, subDir}
-	_ = tmpl.Execute(w, data)
+	}{false, baseURL, formVal, scheme, subDir}
+	err = tmpl.Execute(w, data)
+	if err != nil {
+		log.Fatal(err)
+	}
 }
 
 func newHandler() http.Handler {

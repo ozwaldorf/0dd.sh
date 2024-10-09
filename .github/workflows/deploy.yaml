@@ -2,6 +2,11 @@ name: Fastly
 on:
   push:
     branches: [main]
+    paths:
+      - '.github/workflows/deploy.yaml'
+      - 'fastly.toml'
+      - 'Cargo.*'
+      - 'src'
 
 jobs:
   deploy:
@@ -11,7 +16,7 @@ jobs:
     - uses: dtolnay/rust-toolchain@stable
       with:
         targets: wasm32-wasi
-    - name: Deploy
-      uses: fastly/compute-actions@v5
+    - uses: Swatinem/rust-cache@v2
+    - uses: fastly/compute-actions@v5
       env:
         FASTLY_API_TOKEN: ${{ secrets.FASTLY_API_TOKEN }}

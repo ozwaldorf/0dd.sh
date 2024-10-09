@@ -1,33 +1,36 @@
-//! No bullshit pastebin service
-
+use std::io::Write;
 use std::time::Duration;
 
-use fastly::http::{HeaderValue, Method};
-use fastly::{Error, Request, Response};
+use fastly::handle::ResponseHandle;
+use fastly::http::Method;
+use fastly::{cache, Error, Request, Response};
 use serde_json::json;
 use tinytemplate::TinyTemplate;
 
-/// Request cache ttl
-const REQ_TTL: u32 = 604800; // 1 week
+/// Minimum content size in bytes
+const MIN_CONTENT_SIZE: usize = 32;
+/// Maximum content size in bytes
+const MAX_CONTENT_SIZE: usize = 24 << 20; // 24 MiB
 
 /// Upload ID length, up to 64 bytes
 const ID_LENGTH: usize = 8;
 
-// Content limitations
-const MIN_CONTENT_SIZE: usize = 32;
-const MAX_CONTENT_SIZE: usize = 24 << 20; // 24 MiB
-
-// Key-value configuration
+/// Key-value storage name
 const KV_STORE: &str = "upldis storage";
+/// Initial TTL for unfetched content
 const KV_INIT_TTL: Duration = Duration::from_secs(604800); // 1 week
+/// Extended TTL for refreshed content
 const KV_TTL: Duration = Duration::from_secs(2629743); // 1 month
+
+/// Request cache ttl
+const CACHE_TTL: Duration = Duration::from_secs(604800); // 1 week
 
 /// Helptext template (based on request hostname)
 const HELP_TEMPLATE: &str = "\
 {host}(1){padding}{host_caps}{padding}{host}(1)
 
  NAME
-     {host} - no bullshit cli pastebin
+     {host} - no bullshit command line pastebin
 
  SYNOPSIS
      # File Upload
@@ -76,14 +79,11 @@ fn main(req: Request) -> Result<Response, Error> {
 }
 
 fn handle_usage(req: Request) -> Response {
-    println!("handling usage");
-
-    let mut tt = TinyTemplate::new();
-    tt.add_template("usage", HELP_TEMPLATE).unwrap();
-
+    // Get hostname from request
     let url = req.get_url();
     let host = url.host().unwrap().to_string();
 
+    // Create padding for header
     const MAX: usize = 70 - 6;
     let hostlen = 3 * host.len();
     let padding = " ".repeat(if hostlen < MAX {
@@ -92,6 +92,9 @@ fn handle_usage(req: Request) -> Response {
         2
     });
 
+    // Render template
+    let mut tt = TinyTemplate::new();
+    tt.add_template("usage", HELP_TEMPLATE).unwrap();
     let rendered = tt
         .render(
             "usage",
@@ -103,6 +106,7 @@ fn handle_usage(req: Request) -> Response {
         )
         .unwrap();
 
+    // Respond with rendered helptext
     Response::from_body(rendered)
 }
 
@@ -136,6 +140,7 @@ fn handle_put(mut req: Request) -> Result<Response, Error> {
             .time_to_live(KV_INIT_TTL)
             .execute(id, body)?;
     }
+    println!("put {id} onto key value storage");
 
     // Respond with download URL
     Ok(Response::from_body(format!(
@@ -152,30 +157,44 @@ fn handle_put(mut req: Request) -> Result<Response, Error> {
     )))
 }
 
-fn handle_get(mut req: Request) -> Result<Response, Error> {
-    // extract id from url
+fn handle_get(req: Request) -> Result<Response, Error> {
+    // Extract id from url
     let mut segments = req.get_path().split('/').skip(1);
     let id = segments.next().expect("empty path is handled earlier");
     if id.len() != ID_LENGTH {
         return Ok(Response::from_status(404).with_body("not found"));
     }
 
-    let kv = fastly::KVStore::open(KV_STORE)?.expect("kv store to exist");
+    // Try to find content in cache
+    if let Some(found) = cache::core::lookup(id.to_owned().into()).execute()? {
+        // TODO: should we put content back into key value storage if it's been purged,
+        //       but a pop still has the data cached?
 
-    // Get content from key value store
+        let body_handle = found.to_stream()?.into_handle();
+        let res = Response::from_handles(ResponseHandle::new(), body_handle);
+        return Ok(res);
+    }
+
+    // Otherwise, get content from key value store (origin)
+    let kv = fastly::KVStore::open(KV_STORE)?.expect("kv store to exist");
     let content = match kv.lookup(id) {
         Err(_) => return Ok(Response::from_status(404).with_body("not found")),
         Ok(mut res) => res.take_body_bytes(),
     };
 
-    // Extend time to live (by appending nothing)
+    // Extend KV TTL
     kv.build_insert()
-        .time_to_live(KV_TTL)
         .mode(fastly::kv_store::InsertMode::Append)
+        .time_to_live(KV_TTL)
         .execute(id, "")?;
 
-    // Cache in POP region under key `get`
-    req.set_surrogate_key(HeaderValue::from_str("get").unwrap());
-    req.set_ttl(REQ_TTL);
+    // Write content to cache
+    let mut w = cache::core::insert(id.to_owned().into(), CACHE_TTL)
+        .surrogate_keys(["get"])
+        .execute()?;
+    w.write_all(&content)?;
+    w.finish()?;
+
+    // Respond with content
     Ok(Response::from_body(content))
 }

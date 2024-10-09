@@ -17,12 +17,12 @@ const MAX_CONTENT_SIZE: usize = 24 << 20;
 /// Fastly key-value storage name
 const KV_STORE: &str = "upldis storage";
 /// TTL for content
-const KV_TTL: Duration = Duration::from_secs(604800); // 1 week
+const KV_TTL: Duration = Duration::from_secs(7 * 86400);
 /// Request cache ttl
-const CACHE_TTL: Duration = Duration::from_secs(2629743); // 1 month
+const CACHE_TTL: Duration = Duration::from_secs(30 * 86400);
 
 /// Helptext template (based on request hostname)
-const HELP_TEMPLATE: &str = r#"\
+const HELP_TEMPLATE: &str = "\
 {host}(1){padding}{host_caps}{padding}{host}(1)
 
  NAME
@@ -45,24 +45,35 @@ const HELP_TEMPLATE: &str = r#"\
      containing a portion of the content's blake3 hash, encoded with
      base58.
 
-     Content is deleted from storage in ~ {kv_ttl}, after which, it
-     is available only in regions that have it cached still.
+     Content is deleted from storage after some time. Once deleted,
+     the content will remain available for some time in regions that
+     have it cached still. Content ids are hashes, so re-uploaded
+     content will always the same URL.
 
-     Maximum file size: {max_size}
-     Storage time to live: {kv_ttl}
-     Cache time to live: ~ {cache_ttl}
+     LIMITS
+         * Maximum file size  :  {max_size}
+         * Storage TTL        :  {kv_ttl}
+         * Cache TTL          :  {cache_ttl}
 
- EXAMPLE
-     $ echo "testing" | curl {host} -LT -
+ EXAMPLES
+     $ echo 'testing' | curl {host} -LT -
        https://{host}/deadbeef
 
      $ curl https://{host}/deadbeef
        testing
 
+ CAVEATS
+     Respect for intellectual property rights is paramount. Users must
+     not post any material that infringes on the copyright or other
+     intellectual property rights of others. This includes unauthorized
+     copies of software, music, videos, and other copyrighted materials.
+
+ COPYRIGHT
+     Ossian Mapes (c) 2024, MIT
+
  SEE ALSO
-     {host} is a free service brought to you by ozwaldorf (c) 2024
-     Source code available at https://github.com/ozwaldorf/upld.is
-"#;
+     https://github.com/ozwaldorf/upld.is
+";
 
 #[fastly::main]
 fn main(req: Request) -> Result<Response, Error> {
@@ -171,9 +182,6 @@ fn handle_get(req: Request) -> Result<Response, Error> {
 
     // Try to find content in cache
     if let Some(found) = cache::core::lookup(id.to_owned().into()).execute()? {
-        // TODO: should we put content back into key value storage if it's been purged,
-        //       but a pop still has the data cached?
-
         let body_handle = found.to_stream()?.into_handle();
         let res = Response::from_handles(ResponseHandle::new(), body_handle);
         return Ok(res);

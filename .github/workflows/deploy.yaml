@@ -6,7 +6,7 @@ on:
       - '.github/workflows/deploy.yaml'
       - 'fastly.toml'
       - 'Cargo.*'
-      - 'src'
+      - 'src/*'
 
 jobs:
   deploy:

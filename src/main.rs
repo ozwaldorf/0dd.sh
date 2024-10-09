@@ -22,7 +22,7 @@ const KV_TTL: Duration = Duration::from_secs(604800); // 1 week
 const CACHE_TTL: Duration = Duration::from_secs(2629743); // 1 month
 
 /// Helptext template (based on request hostname)
-const HELP_TEMPLATE: &str = "\
+const HELP_TEMPLATE: &str = r#"\
 {host}(1){padding}{host_caps}{padding}{host}(1)
 
  NAME
@@ -39,29 +39,30 @@ const HELP_TEMPLATE: &str = "\
      <command> | curl {host} -LT -
 
  DESCRIPTION
-     A simple, no bullshit, command line pastebin. Pastes are created
-     using HTTP PUT requests, which returns a url for the content.
+     A simple, no bullshit, command line pastebin.
 
-     Content is stored initially with a short ttl, which is extended on
-     each request. Requests are also cached per region for a short time.
+     Pastes are created using HTTP PUT requests, which returns a URL
+     containing a portion of the content's blake3 hash, encoded with
+     base58.
+
+     Content is deleted from storage in ~ {kv_ttl}, after which, it
+     is available only in regions that have it cached still.
 
      Maximum file size: {max_size}
-     Storage time: {kv_ttl}
-     Cache time: {cache_ttl}
+     Storage time to live: {kv_ttl}
+     Cache time to live: ~ {cache_ttl}
 
- EXAMPLES
-     $ curl {host} -LT filename.png
-       https://{host}/<hash>/filename.png
+ EXAMPLE
+     $ echo "testing" | curl {host} -LT -
+       https://{host}/deadbeef
 
-     $ ps -aux | curl {host} -LT -
-       https://{host}/<hash>
+     $ curl https://{host}/deadbeef
+       testing
 
  SEE ALSO
      {host} is a free service brought to you by ozwaldorf (c) 2024
-
-     Source code available via:
-       $ git clone https://github.com/ozwaldorf/upld.is
-";
+     Source code available at https://github.com/ozwaldorf/upld.is
+"#;
 
 #[fastly::main]
 fn main(req: Request) -> Result<Response, Error> {

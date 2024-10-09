@@ -4,18 +4,19 @@ use std::time::Duration;
 use fastly::handle::ResponseHandle;
 use fastly::http::Method;
 use fastly::{cache, Error, Request, Response};
+use humanize_bytes::humanize_bytes_binary;
 use serde_json::json;
 use tinytemplate::TinyTemplate;
 
 /// Minimum content size in bytes
 const MIN_CONTENT_SIZE: usize = 32;
 /// Maximum content size in bytes
-const MAX_CONTENT_SIZE: usize = 24 << 20; // 24 MiB
+const MAX_CONTENT_SIZE: usize = 24 << 20;
 
 /// Upload ID length, up to 64 bytes
 const ID_LENGTH: usize = 8;
 
-/// Key-value storage name
+/// Fastly key-value storage name
 const KV_STORE: &str = "upldis storage";
 /// Initial TTL for unfetched content
 const KV_INIT_TTL: Duration = Duration::from_secs(604800); // 1 week
@@ -49,6 +50,8 @@ const HELP_TEMPLATE: &str = "\
      Content is stored initially with a short ttl, which is extended on
      each request. Requests are also cached per region for a short time.
 
+     Maximum file size: {max_size}
+
  EXAMPLES
      $ ps -aux | curl {host} -LT -
        https://{host}/<hash>
@@ -58,7 +61,9 @@ const HELP_TEMPLATE: &str = "\
 
  SEE ALSO
      {host} is a free service brought to you by ozwaldorf (c) 2024
-     Source is available at https://github.com/ozwaldorf/upld.is
+
+     Source code available via:
+       $ git clone https://github.com/ozwaldorf/upld.is
 ";
 
 #[fastly::main]
@@ -87,10 +92,11 @@ fn handle_usage(req: Request) -> Response {
     const MAX: usize = 70 - 6;
     let hostlen = 3 * host.len();
     let padding = " ".repeat(if hostlen < MAX {
-        ((MAX - (3 * host.len())) / 2).max(2)
+        ((MAX - (3 * host.len())) / 2 + 1).max(2)
     } else {
         2
     });
+    let max_size = humanize_bytes_binary!(MAX_CONTENT_SIZE);
 
     // Render template
     let mut tt = TinyTemplate::new();
@@ -101,7 +107,8 @@ fn handle_usage(req: Request) -> Response {
             &json!({
                 "host": host,
                 "host_caps": host.to_uppercase(),
-                "padding": padding
+                "padding": padding,
+                "max_size": *max_size
             }),
         )
         .unwrap();

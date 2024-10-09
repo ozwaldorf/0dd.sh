@@ -134,7 +134,7 @@ fn handle_put(mut req: Request) -> Result<Response, Error> {
     let filename = url.path_segments().unwrap().last();
 
     // Hash content and use it for the id
-    let hash = blake3::hash(&body).to_hex();
+    let hash = bs58::encode(blake3::hash(&body).as_bytes()).into_string();
     let id = &hash[..ID_LENGTH];
 
     let kv = fastly::kv_store::KVStore::open(KV_STORE)?.expect("kv store to exist");

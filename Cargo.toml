@@ -15,4 +15,6 @@ tinytemplate = "1.2"
 serde_json = "1.0"
 humanize-bytes = "1.0"
 humantime = "2.1"
+bs58 = "0.5"
 blake3 = "1.5"
+

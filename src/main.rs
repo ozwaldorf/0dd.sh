@@ -8,23 +8,18 @@ use humanize_bytes::humanize_bytes_binary;
 use serde_json::json;
 use tinytemplate::TinyTemplate;
 
+/// Upload ID length, up to 64 bytes
+const ID_LENGTH: usize = 8;
 /// Minimum content size in bytes
 const MIN_CONTENT_SIZE: usize = 32;
 /// Maximum content size in bytes
 const MAX_CONTENT_SIZE: usize = 24 << 20;
-
-/// Upload ID length, up to 64 bytes
-const ID_LENGTH: usize = 8;
-
 /// Fastly key-value storage name
 const KV_STORE: &str = "upldis storage";
-/// Initial TTL for unfetched content
-const KV_INIT_TTL: Duration = Duration::from_secs(604800); // 1 week
-/// Extended TTL for refreshed content
-const KV_TTL: Duration = Duration::from_secs(2629743); // 1 month
-
+/// TTL for content
+const KV_TTL: Duration = Duration::from_secs(604800); // 1 week
 /// Request cache ttl
-const CACHE_TTL: Duration = Duration::from_secs(604800); // 1 week
+const CACHE_TTL: Duration = Duration::from_secs(2629743); // 1 month
 
 /// Helptext template (based on request hostname)
 const HELP_TEMPLATE: &str = "\
@@ -34,14 +29,14 @@ const HELP_TEMPLATE: &str = "\
      {host} - no bullshit command line pastebin
 
  SYNOPSIS
+     # View helptext
+     curl {host} -L
+
      # File Upload
-     curl {host} -T <file path>
+     curl {host} -LT <file path>
 
      # Command output
-     <command> | curl {host} -T -
-
-     # View helptext
-     curl {host}
+     <command> | curl {host} -LT -
 
  DESCRIPTION
      A simple, no bullshit, command line pastebin. Pastes are created
@@ -51,13 +46,15 @@ const HELP_TEMPLATE: &str = "\
      each request. Requests are also cached per region for a short time.
 
      Maximum file size: {max_size}
+     Storage time: {kv_ttl}
+     Cache time: {cache_ttl}
 
  EXAMPLES
-     $ ps -aux | curl {host} -LT -
-       https://{host}/<hash>
-
      $ curl {host} -LT filename.png
        https://{host}/<hash>/filename.png
+
+     $ ps -aux | curl {host} -LT -
+       https://{host}/<hash>
 
  SEE ALSO
      {host} is a free service brought to you by ozwaldorf (c) 2024
@@ -70,16 +67,16 @@ const HELP_TEMPLATE: &str = "\
 fn main(req: Request) -> Result<Response, Error> {
     // Log service version
     println!(
-        "FASTLY_SERVICE_VERSION: {}",
-        std::env::var("FASTLY_SERVICE_VERSION").unwrap_or_else(|_| String::new())
+        "service version {}",
+        std::env::var("FASTLY_SERVICE_VERSION").unwrap_or_default()
     );
 
     // Filter request methods...
     match (req.get_method(), req.get_path()) {
         (&Method::GET, "/") => Ok(handle_usage(req)),
-        (&Method::PUT, _) => handle_put(req),
         (&Method::GET, _) => handle_get(req),
-        (_, _) => todo!(),
+        (&Method::PUT, _) => handle_put(req),
+        _ => Ok(Response::from_status(403).with_body("invalid request")),
     }
 }
 
@@ -96,7 +93,6 @@ fn handle_usage(req: Request) -> Response {
     } else {
         2
     });
-    let max_size = humanize_bytes_binary!(MAX_CONTENT_SIZE);
 
     // Render template
     let mut tt = TinyTemplate::new();
@@ -108,7 +104,9 @@ fn handle_usage(req: Request) -> Response {
                 "host": host,
                 "host_caps": host.to_uppercase(),
                 "padding": padding,
-                "max_size": *max_size
+                "max_size": *humanize_bytes_binary!(MAX_CONTENT_SIZE),
+                "kv_ttl": humantime::format_duration(KV_TTL).to_string(),
+                "cache_ttl": humantime::format_duration(CACHE_TTL).to_string()
             }),
         )
         .unwrap();
@@ -143,9 +141,7 @@ fn handle_put(mut req: Request) -> Result<Response, Error> {
     // If id does not exist already
     if kv.lookup(id).is_err() {
         // Insert to key value store with initial ttl
-        kv.build_insert()
-            .time_to_live(KV_INIT_TTL)
-            .execute(id, body)?;
+        kv.build_insert().time_to_live(KV_TTL).execute(id, body)?;
     }
     println!("put {id} onto key value storage");
 
@@ -188,12 +184,6 @@ fn handle_get(req: Request) -> Result<Response, Error> {
         Err(_) => return Ok(Response::from_status(404).with_body("not found")),
         Ok(mut res) => res.take_body_bytes(),
     };
-
-    // Extend KV TTL
-    kv.build_insert()
-        .mode(fastly::kv_store::InsertMode::Append)
-        .time_to_live(KV_TTL)
-        .execute(id, "")?;
 
     // Write content to cache
     let mut w = cache::core::insert(id.to_owned().into(), CACHE_TTL)

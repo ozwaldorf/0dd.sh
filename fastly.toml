@@ -1,0 +1,9 @@
+# This file describes a Fastly Compute package. To learn more visit:
+# https://www.fastly.com/documentation/reference/compute/fastly-toml
+
+authors = ["ozwaldorf <self@ossian.dev>"]
+description = "No bullshit pastebin"
+language = "rust"
+manifest_version = 3
+name = "upld.is"
+service_id = "kR8qHyvG08fIVCWBqvJ8D3"

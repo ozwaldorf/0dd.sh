@@ -41,11 +41,21 @@
      * All time uploads     :   {upload_counter}
 
  EXAMPLES
-     $ echo 'testing' | curl {host} -LT -
-       https://{host}/deadbeef
+     * Upload and download:
+         $ echo 'testing' | curl {host} -LT -
+           https://{host}/deadbeef
 
-     $ curl https://{host}/deadbeef
-       testing
+         $ curl https://{host}/deadbeef
+           testing
+
+     * Encrypted upload and download:
+         $ gpg -o- -c my-file | curl upld.is -LT-
+           https://{host}/deadbeef
+
+         $ curl https://{host}/deadbeef | gpg -d
+           gpg: AES256.CFB encrypted data
+           gpg: encrypted with 1 passphrase
+           ...
 
  COPYRIGHT
      Ossian Mapes (c) 2024, MIT

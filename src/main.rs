@@ -1,4 +1,4 @@
-use std::io::Write;
+use std::io::{BufRead, Write};
 use std::time::{Duration, SystemTime};
 
 use fastly::handle::ResponseHandle;
@@ -90,6 +90,17 @@ fn main(req: Request) -> Result<Response, Error> {
     // Filter request methods...
     match (req.get_method(), req.get_path()) {
         (&Method::GET, "/") => handle_usage(req),
+        (&Method::GET, "/metrics") => {
+            let kv = KVStore::open(KV_STORE)?.unwrap();
+            if let Ok(mut metrics) = kv.lookup("_upload_metrics") {
+                Ok(Response::from_handles(
+                    ResponseHandle::new(),
+                    metrics.take_body().into_handle(),
+                ))
+            } else {
+                Ok(Response::new())
+            }
+        }
         (&Method::GET, _) => handle_get(req),
         (&Method::PUT, _) => handle_put(req),
         _ => Ok(Response::from_status(403).with_body("invalid request")),
@@ -148,9 +159,13 @@ fn handle_put(mut req: Request) -> Result<Response, Error> {
 
     let url = req.get_url();
     let host = url.host().unwrap().to_string();
-    let filename = url.path_segments().unwrap().last();
+    let filename = url
+        .path_segments()
+        .unwrap()
+        .last()
+        .and_then(|v| (!v.is_empty()).then_some(v));
 
-    // Hash content and use it for the id
+    // Hash content and use base58 for the id
     let hash = bs58::encode(blake3::hash(&body).as_bytes()).into_string();
     let id = &hash[..ID_LENGTH];
     let key = &format!("file_{id}");
@@ -159,7 +174,7 @@ fn handle_put(mut req: Request) -> Result<Response, Error> {
     let kv = KVStore::open(KV_STORE)?.expect("kv store to exist");
     if kv.lookup(key).is_err() {
         kv.build_insert().time_to_live(KV_TTL).execute(key, body)?;
-        track_uploads(&kv, id)?;
+        track_upload(&kv, id, filename.unwrap_or("undefined"))?;
     }
 
     println!("put {key} in storage");
@@ -167,15 +182,7 @@ fn handle_put(mut req: Request) -> Result<Response, Error> {
     // Respond with download URL
     Ok(Response::from_body(format!(
         "https://{host}/{id}{}\n",
-        if let Some(file) = filename {
-            if !file.is_empty() {
-                "/".to_string() + file
-            } else {
-                "".into()
-            }
-        } else {
-            "".into()
-        }
+        filename.map(|v| "/".to_string() + v).unwrap_or_default()
     )))
 }
 
@@ -217,22 +224,22 @@ fn handle_get(req: Request) -> Result<Response, Error> {
 const UPLOAD_METRICS_KEY: &str = "_upload_metrics";
 
 /// Get a counter from the key value store
-fn upload_count(kv: &KVStore) -> u32 {
+fn upload_count(kv: &KVStore) -> usize {
     kv.lookup(UPLOAD_METRICS_KEY)
-        .map(|v| v.generation() + 1)
+        .map(|mut v| v.take_body_bytes().lines().count())
         .unwrap_or_default()
 }
 
 /// Append the key and a timestamp to the metrics
-fn track_uploads(kv: &KVStore, id: &str) -> Result<(), Error> {
+fn track_upload(kv: &KVStore, id: &str, file: &str) -> Result<(), Error> {
     kv.build_insert().mode(InsertMode::Append).execute(
         UPLOAD_METRICS_KEY,
         format!(
-            "{id},{:?}",
+            "{:?} , {id} , {file}\n",
             SystemTime::now()
                 .duration_since(SystemTime::UNIX_EPOCH)
                 .unwrap_or_default()
-                .as_secs_f64()
+                .as_millis()
         ),
     )?;
     Ok(())

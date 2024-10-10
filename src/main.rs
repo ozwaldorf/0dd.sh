@@ -1,7 +1,7 @@
 use std::io::{BufRead, Write};
 use std::time::SystemTime;
 
-use fastly::http::Method;
+use fastly::http::{header, Method};
 use fastly::kv_store::InsertMode;
 use fastly::{cache, Error, KVStore, Request, Response};
 use humanize_bytes::humanize_bytes_binary;
@@ -49,15 +49,14 @@ const HELP_TEMPLATE: &str = "\
      A simple, no bullshit, tamper-proof command line pastebin.
 
      Pastes are created using HTTP PUT requests, which returns a
-     determanistic paste URL containing a portion of the content's
-     base58-encoded blake3 hash. Filenames are ignored in the URL
+     determanistic paste URL. Filenames are ignored in the URL
      and can be modified or removed entirely.
 
-     Pastes can be trustlessly verified at any point:
+     Paste downloads can be verified by doing the following:
          1) Get the checksum from the HTTP header `x-content-hash`
 
          2) Verify the checksum by re-encoding with base58 and
-            ensuring it matches the id in the requested paste URL
+            ensuring it matches the slice in the paste URL
 
          3) Verify the recieved content by hashing with blake3 and
             comparing against the checksum.
@@ -102,13 +101,27 @@ fn main(req: Request) -> Result<Response, Error> {
         std::env::var("FASTLY_SERVICE_VERSION").unwrap_or_default()
     );
 
-    // Filter request methods...
-    match (req.get_method(), req.get_path()) {
-        (&Method::GET, "/") => handle_usage(req),
-        (&Method::GET, _) => handle_get(req),
-        (&Method::PUT, _) => handle_put(req),
-        _ => Ok(Response::from_status(403).with_body("invalid request")),
-    }
+    let res = match (req.get_method(), req.get_path()) {
+        // Handle usage page
+        (&Method::GET, "/") => handle_usage(req)?,
+        // Handle getting content
+        (&Method::GET, _) => handle_get(req)?.with_header(
+            // Client-side cache control, content will never change
+            header::CACHE_CONTROL,
+            "public, s-maxage=31536000, immutable",
+        ),
+        // Handle uploading content
+        (&Method::PUT, _) => handle_put(req)?,
+        // Fallback to forbidden error
+        _ => Response::from_status(403).with_body("invalid request"),
+    };
+
+    // enable hsts, cross origin sharing, disable iframe embeds
+    Ok(res
+        .with_header(header::STRICT_TRANSPORT_SECURITY, "max-age=2592000")
+        .with_header(header::REFERRER_POLICY, "origin-when-cross-origin")
+        .with_header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")
+        .with_header(header::X_FRAME_OPTIONS, "SAMEORIGIN"))
 }
 
 fn handle_usage(req: Request) -> Result<Response, Error> {
@@ -191,7 +204,8 @@ fn handle_put(mut req: Request) -> Result<Response, Error> {
     Ok(Response::from_body(format!(
         "https://{host}/{id}{}\n",
         filename.map(|v| "/".to_string() + v).unwrap_or_default()
-    )))
+    ))
+    .with_header("x-content-hash", hash.to_string()))
 }
 
 fn handle_get(req: Request) -> Result<Response, Error> {
@@ -206,7 +220,7 @@ fn handle_get(req: Request) -> Result<Response, Error> {
     // Try to find content in cache
     if let Some(found) = cache::core::lookup(key.to_owned().into()).execute()? {
         return Ok(Response::new()
-            .with_header("X-CONTENT-HASH", found.user_metadata().as_ref())
+            .with_header("x-content-hash", found.user_metadata().as_ref())
             .with_body(found.to_stream()?.into_handle()));
     }
 
@@ -217,8 +231,8 @@ fn handle_get(req: Request) -> Result<Response, Error> {
         Ok(mut res) => (res.metadata().unwrap(), res.take_body_bytes()),
     };
 
-    // Build response with content hash header
-    let res = Response::new().with_header("X-CONTENT-HASH", meta.as_ref());
+    // Start building response with content hash header. Separated to avoid some clones
+    let res = Response::new().with_header("x-content-hash", meta.as_ref());
 
     // Write content to cache
     let mut w = cache::core::insert(key.to_owned().into(), config::CACHE_TTL)

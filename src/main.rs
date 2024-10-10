@@ -221,7 +221,7 @@ const UPLOAD_METRICS_KEY: &str = "_upload_metrics";
 /// Get a counter from the key value store
 fn upload_count(kv: &KVStore) -> u32 {
     kv.lookup(UPLOAD_METRICS_KEY)
-        .map(|v| v.generation())
+        .map(|v| v.generation() + 1)
         .unwrap_or_default()
 }
 

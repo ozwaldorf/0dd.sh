@@ -3,8 +3,10 @@ use std::time::{Duration, SystemTime};
 
 use fastly::handle::ResponseHandle;
 use fastly::http::Method;
+use fastly::kv_store::InsertMode;
 use fastly::{cache, Error, KVStore, Request, Response};
 use humanize_bytes::humanize_bytes_binary;
+use humantime::format_duration;
 use serde_json::json;
 use tinytemplate::TinyTemplate;
 
@@ -110,8 +112,8 @@ fn handle_usage(req: Request) -> Result<Response, Error> {
         2
     });
 
-    let kv = fastly::kv_store::KVStore::open(KV_STORE)?.expect("kv store to exist");
-    let upload_counter = get_counter(&kv, "upload")?;
+    let kv = KVStore::open(KV_STORE)?.expect("kv store to exist");
+    let upload_counter = upload_count(&kv);
 
     // Render template
     let mut tt = TinyTemplate::new();
@@ -123,8 +125,8 @@ fn handle_usage(req: Request) -> Result<Response, Error> {
             "host_caps": host.to_uppercase(),
             "padding": padding,
             "max_size": *humanize_bytes_binary!(MAX_CONTENT_SIZE),
-            "kv_ttl": humantime::format_duration(KV_TTL).to_string(),
-            "cache_ttl": humantime::format_duration(CACHE_TTL).to_string(),
+            "kv_ttl": format_duration(KV_TTL).to_string(),
+            "cache_ttl": format_duration(CACHE_TTL).to_string(),
             "upload_counter": upload_counter
         }),
     )?;
@@ -153,17 +155,16 @@ fn handle_put(mut req: Request) -> Result<Response, Error> {
     // Hash content and use it for the id
     let hash = bs58::encode(blake3::hash(&body).as_bytes()).into_string();
     let id = &hash[..ID_LENGTH];
+    let key = &format!("file_{id}");
 
-    let kv = fastly::kv_store::KVStore::open(KV_STORE)?.expect("kv store to exist");
-
-    // If id does not exist already
-    if kv.lookup(id).is_err() {
-        // Insert to key value store with initial ttl
-        kv.build_insert().time_to_live(KV_TTL).execute(id, body)?;
-        increment_counter(&kv, "upload")?;
+    // Insert content to key value store
+    let kv = KVStore::open(KV_STORE)?.expect("kv store to exist");
+    if kv.lookup(key).is_err() {
+        kv.build_insert().time_to_live(KV_TTL).execute(key, body)?;
+        track_uploads(&kv, id)?;
     }
 
-    println!("put {id} in storage");
+    println!("put {key} in storage");
 
     // Respond with download URL
     Ok(Response::from_body(format!(
@@ -187,23 +188,24 @@ fn handle_get(req: Request) -> Result<Response, Error> {
     if id.len() != ID_LENGTH {
         return Ok(Response::from_status(404).with_body("not found"));
     }
+    let key = &format!("file_{id}");
 
     // Try to find content in cache
-    if let Some(found) = cache::core::lookup(id.to_owned().into()).execute()? {
+    if let Some(found) = cache::core::lookup(key.to_owned().into()).execute()? {
         let body_handle = found.to_stream()?.into_handle();
         let res = Response::from_handles(ResponseHandle::new(), body_handle);
         return Ok(res);
     }
 
     // Otherwise, get content from key value store (origin)
-    let kv = fastly::KVStore::open(KV_STORE)?.expect("kv store to exist");
-    let content = match kv.lookup(id) {
+    let kv = KVStore::open(KV_STORE)?.expect("kv store to exist");
+    let content = match kv.lookup(key) {
         Err(_) => return Ok(Response::from_status(404).with_body("not found")),
         Ok(mut res) => res.take_body_bytes(),
     };
 
     // Write content to cache
-    let mut w = cache::core::insert(id.to_owned().into(), CACHE_TTL)
+    let mut w = cache::core::insert(key.to_owned().into(), CACHE_TTL)
         .surrogate_keys(["get"])
         .execute()?;
     w.write_all(&content)?;
@@ -213,24 +215,27 @@ fn handle_get(req: Request) -> Result<Response, Error> {
     Ok(Response::from_body(content))
 }
 
+/// Key to store upload metrics under
+const UPLOAD_METRICS_KEY: &str = "_upload_metrics";
+
 /// Get a counter from the key value store
-fn get_counter(kv: &KVStore, name: &str) -> Result<u32, Error> {
-    let key = format!("_counter_{name}");
-    Ok(kv.lookup(&key).map(|v| v.generation()).unwrap_or_default())
+fn upload_count(kv: &KVStore) -> u32 {
+    kv.lookup(UPLOAD_METRICS_KEY)
+        .map(|v| v.generation())
+        .unwrap_or_default()
 }
 
-/// Increment a counter in the key value store, based on th
-fn increment_counter(kv: &KVStore, name: &str) -> Result<(), Error> {
-    let key = format!("_counter_{name}");
-    let cnt = 1 + kv.lookup(&key).map(|v| v.generation()).unwrap_or_default();
-    kv.build_insert()
-        .mode(fastly::kv_store::InsertMode::Append)
-        .execute(
-            &key,
-            format!(
-                "{cnt},{:?}",
-                SystemTime::now().duration_since(SystemTime::UNIX_EPOCH)
-            ),
-        )?;
+/// Append the key and a timestamp to the metrics
+fn track_uploads(kv: &KVStore, id: &str) -> Result<(), Error> {
+    kv.build_insert().mode(InsertMode::Append).execute(
+        UPLOAD_METRICS_KEY,
+        format!(
+            "{id},{:?}",
+            SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs_f64()
+        ),
+    )?;
     Ok(())
 }

@@ -4,14 +4,9 @@
      {host} - no bullshit command line pastebin
 
  SYNOPSIS
-     # View helptext
-     curl {host} -L
-
-     # Upload file
-     curl {host} -LT <file path>
-
-     # Upload command output
-     <command> | curl {host} -LT -
+     * View helptext  :  curl {host} -L
+     * Upload file    :  curl {host} -LT <file path>
+     * Upload stdin   :  <command> | curl {host} -LT -
 
  DESCRIPTION
      A simple, no bullshit, tamper-proof command line pastebin.
@@ -22,10 +17,8 @@
 
      Paste downloads can be verified by doing the following:
          1) Get the checksum from the HTTP header `x-content-hash`
-
          2) Verify the checksum by re-encoding with base58 and
             ensuring it matches the slice in the paste URL
-
          3) Verify the recieved content by hashing with blake3 and
             comparing against the checksum.
 
@@ -35,32 +28,37 @@
      the same paste URL.
 
  NOTES
-     * Maximum file size    :   {max_size}
-     * Storage TTL          :   {kv_ttl}
-     * Regional cache TTL   :   {cache_ttl}
-     * All time uploads     :   {upload_counter}
+     * Maximum file size   :  {max_size}
+     * Storage TTL         :  {kv_ttl}
+     * Regional cache TTL  :  {cache_ttl}
+     * All time uploads    :  {upload_counter}
 
  EXAMPLES
      * Upload and download:
          $ echo 'testing' | curl {host} -LT -
            https://{host}/deadbeef
-
          $ curl https://{host}/deadbeef
            testing
 
      * Encrypted upload and download:
-         $ gpg -o- -c my-file | curl upld.is -LT-
+         $ echo 'testing' | gpg -o- -c | curl {host} -LT -
            https://{host}/deadbeef
-
          $ curl https://{host}/deadbeef | gpg -d
            gpg: AES256.CFB encrypted data
            gpg: encrypted with 1 passphrase
-           ...
+           testing
 
- COPYRIGHT
-     Ossian Mapes (c) 2024, MIT
+     * Sending and applying a git patch:
+         $ git diff | curl {host} -LT -
+           https://{host}/deadbeef
+         $ git apply <(curl https://{host}/deadbeef)
 
  SEE ALSO
-     * Privacy policy   :   https://{host}/privacy
-     * Source code      :   https://github.com/ozwaldorf/upld.is
-     * Donations (ETH)  :   0x45b2c262fae9c449f9067d65dcc82ba18d087241
+     * Privacy policy   :  https://{host}/privacy
+     * Source code      :  https://github.com/ozwaldorf/upld.is
+     * Donations (ETH)  :  0x45b2c262fae9c449f9067d65dcc82ba18d087241
+
+ COPYRIGHT
+     Copyright (c) 2024 Ossian Mapes.
+     This work is licensed under the terms of the MIT license.
+     For a copy, see https://opensource.org/licenses/MIT

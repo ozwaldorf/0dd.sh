@@ -34,29 +34,29 @@ const HELP_TEMPLATE: &str = "\
      # View helptext
      curl {host} -L
 
-     # File Upload
+     # Upload file
      curl {host} -LT <file path>
 
-     # Command output
+     # Upload command output
      <command> | curl {host} -LT -
 
  DESCRIPTION
      A simple, no bullshit, command line pastebin.
 
-     Pastes are created using HTTP PUT requests, which returns a URL
-     containing a portion of the content's blake3 hash, encoded with
-     base58.
+     Pastes are created using HTTP PUT requests, which returns a
+     determanistic URL containing a portion of the content's blake3
+     hash, encoded with base58. Uploads with identical content will
+     always have the same download URL.
 
-     Content is deleted from storage after some time. Once deleted,
-     the content will remain available for some time in regions that
-     have it cached still. Content ids are hashes, so re-uploaded
-     content will always the same URL.
+     Content is always deleted from storage after some time.
+     Once deleted, the content will remain available in regions that
+     have it cached still.
 
  NOTES
-     * Maximum file size  :  {max_size}
-     * Storage TTL        :  {kv_ttl}
-     * Cache TTL          :  {cache_ttl}
-     * All time uploads   :  {upload_counter}
+     * Maximum file size   :  {max_size}
+     * Storage TTL         :  {kv_ttl}
+     * Regional cache TTL  :  {cache_ttl}
+     * All time uploads    :  {upload_counter}
 
  EXAMPLES
      $ echo 'testing' | curl {host} -LT -

@@ -1,0 +1,46 @@
+What information is collected?
+
+    * the timestamp for the upload
+    * the uploaded content itself
+    * the orignal filename (if given)
+
+Duration of data retention
+
+    All content is automatically deleted from storage after the time
+    period described in the homepage.
+    Cached content may still exist in certain regions for some time
+    after deletion.
+
+Compliance of legal standards
+
+    Users are strictly prohibited from posting any information that
+    may violate applicable laws and regulations.
+    This includes, but is not limited to, login and password lists,
+    email lists, and any form of personal information.
+    This service is committed to lawful conduct and expects the same
+    from its users.
+
+Intellectual Property
+
+    Respect for intellectual property rights is paramount.
+    Users must not post any material that infringes on the copyright
+    or other intellectual property rights of others.
+    This includes unauthorized copies of software, music, videos, and
+    other copyrighted materials.
+
+Liability Disclaimer
+
+    The service owner is not responsible for any wrongdoing, illegal
+    activity, or any harm caused by the use of this service.
+    Users are solely responsible for their actions and the content
+    they upload to the service.
+
+Changes
+
+    We reserve the right to modify this privacy policy at any time.
+    Users are encouraged to periodically review this policy to stay
+    informed of any changes.
+
+Abuse
+
+    Please report any abuse to my email at self@ossian.dev

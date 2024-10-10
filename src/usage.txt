@@ -1,0 +1,55 @@
+{host}(1){padding}{host_caps}{padding}{host}(1)
+
+ NAME
+     {host} - no bullshit command line pastebin
+
+ SYNOPSIS
+     # View helptext
+     curl {host} -L
+
+     # Upload file
+     curl {host} -LT <file path>
+
+     # Upload command output
+     <command> | curl {host} -LT -
+
+ DESCRIPTION
+     A simple, no bullshit, tamper-proof command line pastebin.
+
+     Pastes are created using HTTP PUT requests, which returns a
+     determanistic paste URL. Filenames are ignored in the URL
+     and can be modified or removed entirely.
+
+     Paste downloads can be verified by doing the following:
+         1) Get the checksum from the HTTP header `x-content-hash`
+
+         2) Verify the checksum by re-encoding with base58 and
+            ensuring it matches the slice in the paste URL
+
+         3) Verify the recieved content by hashing with blake3 and
+            comparing against the checksum.
+
+     Pastes are always deleted from storage after some time. Once
+     deleted, the content will remain available in regions that have
+     it cached still. However, content can always be re-uploaded to
+     the same paste URL.
+
+ NOTES
+     * Maximum file size    :   {max_size}
+     * Storage TTL          :   {kv_ttl}
+     * Regional cache TTL   :   {cache_ttl}
+     * All time uploads     :   {upload_counter}
+
+ EXAMPLES
+     $ echo 'testing' | curl {host} -LT -
+       https://{host}/deadbeef
+
+     $ curl https://{host}/deadbeef
+       testing
+
+ COPYRIGHT
+     Ossian Mapes (c) 2024, MIT
+
+ SEE ALSO
+     Privacy policy   :   https://{host}/privacy
+     Source code      :   https://github.com/ozwaldorf/upld.is

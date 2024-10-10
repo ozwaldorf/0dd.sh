@@ -29,69 +29,8 @@ mod config {
 }
 
 /// Helptext template (based on request hostname)
-const HELP_TEMPLATE: &str = "\
-{host}(1){padding}{host_caps}{padding}{host}(1)
-
- NAME
-     {host} - no bullshit command line pastebin
-
- SYNOPSIS
-     # View helptext
-     curl {host} -L
-
-     # Upload file
-     curl {host} -LT <file path>
-
-     # Upload command output
-     <command> | curl {host} -LT -
-
- DESCRIPTION
-     A simple, no bullshit, tamper-proof command line pastebin.
-
-     Pastes are created using HTTP PUT requests, which returns a
-     determanistic paste URL. Filenames are ignored in the URL
-     and can be modified or removed entirely.
-
-     Paste downloads can be verified by doing the following:
-         1) Get the checksum from the HTTP header `x-content-hash`
-
-         2) Verify the checksum by re-encoding with base58 and
-            ensuring it matches the slice in the paste URL
-
-         3) Verify the recieved content by hashing with blake3 and
-            comparing against the checksum.
-
-     Pastes are always deleted from storage after some time. Once
-     deleted, the content will remain available in regions that have
-     it cached still. However, content can always be re-uploaded to
-     the same paste URL.
-
- NOTES
-     * Maximum file size    :   {max_size}
-     * Storage TTL          :   {kv_ttl}
-     * Regional cache TTL   :   {cache_ttl}
-     * All time uploads     :   {upload_counter}
-
- EXAMPLES
-     $ echo 'testing' | curl {host} -LT -
-       https://{host}/deadbeef
-
-     $ curl https://{host}/deadbeef
-       testing
-
- CAVEATS
-     Respect for intellectual property rights is paramount. Users
-     must not post any material that infringes on the copyright or
-     other intellectual property rights of others. This includes
-     unauthorized copies of software, music, videos, and other
-     copyrighted materials.
-
- COPYRIGHT
-     Ossian Mapes (c) 2024, MIT
-
- SEE ALSO
-     https://github.com/ozwaldorf/upld.is
-";
+const HELP_TEMPLATE: &str = include_str!("usage.txt");
+const PRIVACY_TEMPLATE: &str = include_str!("privacy.txt");
 
 #[fastly::main]
 fn main(req: Request) -> Result<Response, Error> {
@@ -101,29 +40,25 @@ fn main(req: Request) -> Result<Response, Error> {
         std::env::var("FASTLY_SERVICE_VERSION").unwrap_or_default()
     );
 
-    let res = match (req.get_method(), req.get_path()) {
-        // Handle usage page
+    Ok(match (req.get_method(), req.get_path()) {
         (&Method::GET, "/") => handle_usage(req)?,
-        // Handle getting content
+        (&Method::GET, "/privacy") => handle_privacy(),
         (&Method::GET, _) => handle_get(req)?.with_header(
             // Client-side cache control, content will never change
             header::CACHE_CONTROL,
             "public, s-maxage=31536000, immutable",
         ),
-        // Handle uploading content
         (&Method::PUT, _) => handle_put(req)?,
-        // Fallback to forbidden error
         _ => Response::from_status(403).with_body("invalid request"),
-    };
-
+    }
     // enable hsts, cross origin sharing, disable iframe embeds
-    Ok(res
-        .with_header(header::STRICT_TRANSPORT_SECURITY, "max-age=2592000")
-        .with_header(header::REFERRER_POLICY, "origin-when-cross-origin")
-        .with_header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")
-        .with_header(header::X_FRAME_OPTIONS, "SAMEORIGIN"))
+    .with_header(header::STRICT_TRANSPORT_SECURITY, "max-age=2592000")
+    .with_header(header::REFERRER_POLICY, "origin-when-cross-origin")
+    .with_header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")
+    .with_header(header::X_FRAME_OPTIONS, "SAMEORIGIN"))
 }
 
+/// Handle a request to the usage page
 fn handle_usage(req: Request) -> Result<Response, Error> {
     // Get hostname from request
     let url = req.get_url();
@@ -158,9 +93,15 @@ fn handle_usage(req: Request) -> Result<Response, Error> {
     )?;
 
     // Respond with rendered helptext
-    Ok(Response::from_body(rendered))
+    Ok(Response::new().with_body_text_plain(&rendered))
 }
 
+/// Handle a request to the privacy policy page
+fn handle_privacy() -> Response {
+    Response::new().with_body_text_plain(PRIVACY_TEMPLATE)
+}
+
+/// Handle a request to put a paste into storage
 fn handle_put(mut req: Request) -> Result<Response, Error> {
     // Check request body
     if !req.has_body() {
@@ -208,6 +149,7 @@ fn handle_put(mut req: Request) -> Result<Response, Error> {
     .with_header("x-content-hash", hash.to_string()))
 }
 
+/// Handle a request to get a paste
 fn handle_get(req: Request) -> Result<Response, Error> {
     // Extract id from url
     let mut segments = req.get_path().split('/').skip(1);
@@ -231,7 +173,7 @@ fn handle_get(req: Request) -> Result<Response, Error> {
         Ok(mut res) => (res.metadata().unwrap(), res.take_body_bytes()),
     };
 
-    // Start building response with content hash header. Separated to avoid some clones
+    // Start building response with content hash header.
     let res = Response::new().with_header("x-content-hash", meta.as_ref());
 
     // Write content to cache

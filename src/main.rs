@@ -1,9 +1,9 @@
 use std::io::Write;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use fastly::handle::ResponseHandle;
 use fastly::http::Method;
-use fastly::{cache, Error, Request, Response};
+use fastly::{cache, Error, KVStore, Request, Response};
 use humanize_bytes::humanize_bytes_binary;
 use serde_json::json;
 use tinytemplate::TinyTemplate;
@@ -62,11 +62,15 @@ const HELP_TEMPLATE: &str = "\
      $ curl https://{host}/deadbeef
        testing
 
+ NOTES
+     All time uploads: {upload_counter}
+
  CAVEATS
-     Respect for intellectual property rights is paramount. Users must
-     not post any material that infringes on the copyright or other
-     intellectual property rights of others. This includes unauthorized
-     copies of software, music, videos, and other copyrighted materials.
+     Respect for intellectual property rights is paramount.
+     Users must not post any material that infringes on the copyright
+     or other intellectual property rights of others.
+     This includes unauthorized copies of software, music, videos,
+     and other copyrighted materials.
 
  COPYRIGHT
      Ossian Mapes (c) 2024, MIT
@@ -85,14 +89,14 @@ fn main(req: Request) -> Result<Response, Error> {
 
     // Filter request methods...
     match (req.get_method(), req.get_path()) {
-        (&Method::GET, "/") => Ok(handle_usage(req)),
+        (&Method::GET, "/") => handle_usage(req),
         (&Method::GET, _) => handle_get(req),
         (&Method::PUT, _) => handle_put(req),
         _ => Ok(Response::from_status(403).with_body("invalid request")),
     }
 }
 
-fn handle_usage(req: Request) -> Response {
+fn handle_usage(req: Request) -> Result<Response, Error> {
     // Get hostname from request
     let url = req.get_url();
     let host = url.host().unwrap().to_string();
@@ -106,25 +110,27 @@ fn handle_usage(req: Request) -> Response {
         2
     });
 
+    let kv = fastly::kv_store::KVStore::open(KV_STORE)?.expect("kv store to exist");
+    let upload_counter = get_counter(&kv, "upload")?;
+
     // Render template
     let mut tt = TinyTemplate::new();
     tt.add_template("usage", HELP_TEMPLATE).unwrap();
-    let rendered = tt
-        .render(
-            "usage",
-            &json!({
-                "host": host,
-                "host_caps": host.to_uppercase(),
-                "padding": padding,
-                "max_size": *humanize_bytes_binary!(MAX_CONTENT_SIZE),
-                "kv_ttl": humantime::format_duration(KV_TTL).to_string(),
-                "cache_ttl": humantime::format_duration(CACHE_TTL).to_string()
-            }),
-        )
-        .unwrap();
+    let rendered = tt.render(
+        "usage",
+        &json!({
+            "host": host,
+            "host_caps": host.to_uppercase(),
+            "padding": padding,
+            "max_size": *humanize_bytes_binary!(MAX_CONTENT_SIZE),
+            "kv_ttl": humantime::format_duration(KV_TTL).to_string(),
+            "cache_ttl": humantime::format_duration(CACHE_TTL).to_string(),
+            "upload_counter": upload_counter
+        }),
+    )?;
 
     // Respond with rendered helptext
-    Response::from_body(rendered)
+    Ok(Response::from_body(rendered))
 }
 
 fn handle_put(mut req: Request) -> Result<Response, Error> {
@@ -154,8 +160,10 @@ fn handle_put(mut req: Request) -> Result<Response, Error> {
     if kv.lookup(id).is_err() {
         // Insert to key value store with initial ttl
         kv.build_insert().time_to_live(KV_TTL).execute(id, body)?;
+        increment_counter(&kv, "upload")?;
     }
-    println!("put {id} onto key value storage");
+
+    println!("put {id} in storage");
 
     // Respond with download URL
     Ok(Response::from_body(format!(
@@ -203,4 +211,29 @@ fn handle_get(req: Request) -> Result<Response, Error> {
 
     // Respond with content
     Ok(Response::from_body(content))
+}
+
+/// Increment a counter in the key value store, based on th
+fn increment_counter(kv: &KVStore, name: &str) -> Result<(), Error> {
+    let key = format!("_counter_{name}");
+    let cnt = kv.lookup(&key).unwrap().generation() + 1;
+    kv.build_insert()
+        .mode(fastly::kv_store::InsertMode::Append)
+        .execute(
+            &key,
+            format!(
+                "{cnt},{:?}",
+                SystemTime::now().duration_since(SystemTime::UNIX_EPOCH)
+            ),
+        )?;
+    Ok(())
+}
+
+/// Get a counter from the key value store
+fn get_counter(kv: &KVStore, name: &str) -> Result<u32, Error> {
+    let key = format!("_counter_{name}");
+    kv.build_insert()
+        .mode(fastly::kv_store::InsertMode::Add)
+        .execute(&key, "0")?;
+    Ok(kv.lookup(&key).unwrap().generation())
 }

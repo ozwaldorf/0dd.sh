@@ -1,6 +1,6 @@
 # upld.is
 
-Source for the no bullshit command line pastebin [upld.is](https://upld.is)
+no bullshit command line pastebin [upld.is](https://upld.is)
 
 ## Usage
 

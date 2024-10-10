@@ -46,27 +46,32 @@ const HELP_TEMPLATE: &str = "\
      <command> | curl {host} -LT -
 
  DESCRIPTION
-     A simple, no bullshit, command line pastebin.
+     A simple, no bullshit, tamper-proof command line pastebin.
 
      Pastes are created using HTTP PUT requests, which returns a
-     determanistic URL containing a portion of the content's blake3
-     hash, encoded with base58. Uploads with identical content will
-     always have the same download URL.
+     determanistic paste URL containing a portion of the content's
+     base58-encoded blake3 hash. Filenames are ignored in the URL
+     and can be modified or removed entirely.
 
-     Content is always deleted from storage after some time.
-     Once deleted, the content will remain available in regions that
-     have it cached still.
+     Pastes can be trustlessly verified at any point:
+         1) Get the checksum from the HTTP header `x-content-hash`
 
-     Content can be verified by using the HTTP header `X-CONTENT-HASH`
-     which contains the full base58-encoded blake3 hash, the same from
-     the download URL. Simply ensure the hash provided matches the URL 
-     and the hash of the content you received.
+         2) Verify the checksum by re-encoding with base58 and
+            ensuring it matches the id in the requested paste URL
+
+         3) Verify the recieved content by hashing with blake3 and
+            comparing against the checksum.
+
+     Pastes are always deleted from storage after some time. Once
+     deleted, the content will remain available in regions that have
+     it cached still. However, content can always be re-uploaded to
+     the same paste URL.
 
  NOTES
-     * Maximum file size   :  {max_size}
-     * Storage TTL         :  {kv_ttl}
-     * Regional cache TTL  :  {cache_ttl}
-     * All time uploads    :  {upload_counter}
+     * Maximum file size    :   {max_size}
+     * Storage TTL          :   {kv_ttl}
+     * Regional cache TTL   :   {cache_ttl}
+     * All time uploads     :   {upload_counter}
 
  EXAMPLES
      $ echo 'testing' | curl {host} -LT -
@@ -76,11 +81,11 @@ const HELP_TEMPLATE: &str = "\
        testing
 
  CAVEATS
-     Respect for intellectual property rights is paramount.
-     Users must not post any material that infringes on the copyright
-     or other intellectual property rights of others.
-     This includes unauthorized copies of software, music, videos,
-     and other copyrighted materials.
+     Respect for intellectual property rights is paramount. Users
+     must not post any material that infringes on the copyright or
+     other intellectual property rights of others. This includes
+     unauthorized copies of software, music, videos, and other
+     copyrighted materials.
 
  COPYRIGHT
      Ossian Mapes (c) 2024, MIT
@@ -164,7 +169,7 @@ fn handle_put(mut req: Request) -> Result<Response, Error> {
         .last()
         .and_then(|v| (!v.is_empty()).then_some(v));
 
-    // Hash content and use base58 for the id
+    // Hash content and use a section of base58 encoding for the id
     let hash = blake3::hash(&body);
     let base = bs58::encode(hash.as_bytes()).into_string();
     let id = &base[..config::ID_LENGTH];

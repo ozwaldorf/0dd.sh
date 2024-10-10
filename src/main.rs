@@ -122,7 +122,7 @@ fn handle_usage(req: Request) -> Result<Response, Error> {
     });
 
     let kv = KVStore::open(KV_STORE)?.expect("kv store to exist");
-    let upload_counter = upload_count(&kv);
+    let upload_counter = get_upload_count(&kv);
 
     // Render template
     let mut tt = TinyTemplate::new();
@@ -223,24 +223,35 @@ fn handle_get(req: Request) -> Result<Response, Error> {
 /// Key to store upload metrics under
 const UPLOAD_METRICS_KEY: &str = "_upload_metrics";
 
-/// Get a counter from the key value store
-fn upload_count(kv: &KVStore) -> usize {
+/// Get upload count from the metadata, or fallback to the number of metric lines.
+fn get_upload_count(kv: &KVStore) -> usize {
     kv.lookup(UPLOAD_METRICS_KEY)
-        .map(|mut v| v.take_body_bytes().lines().count())
+        .ok()
+        .map(|mut v| {
+            v.metadata()
+                // try and parse from metadata
+                .and_then(|m| String::from_utf8_lossy(&m).parse().ok())
+                // otherwise, count number of metric lines
+                .unwrap_or(v.take_body_bytes().lines().count())
+        })
         .unwrap_or_default()
 }
 
 /// Append the key and a timestamp to the metrics
 fn track_upload(kv: &KVStore, id: &str, file: &str) -> Result<(), Error> {
-    kv.build_insert().mode(InsertMode::Append).execute(
-        UPLOAD_METRICS_KEY,
-        format!(
-            "{:?} , {id} , {file}\n",
-            SystemTime::now()
-                .duration_since(SystemTime::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_millis()
-        ),
-    )?;
+    let new_count = get_upload_count(kv) + 1;
+    kv.build_insert()
+        .mode(InsertMode::Append)
+        .metadata(&new_count.to_string())
+        .execute(
+            UPLOAD_METRICS_KEY,
+            format!(
+                "{:?} , {id} , {file}\n",
+                SystemTime::now()
+                    .duration_since(SystemTime::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_millis()
+            ),
+        )?;
     Ok(())
 }

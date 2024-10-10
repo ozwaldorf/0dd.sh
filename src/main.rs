@@ -213,10 +213,16 @@ fn handle_get(req: Request) -> Result<Response, Error> {
     Ok(Response::from_body(content))
 }
 
+/// Get a counter from the key value store
+fn get_counter(kv: &KVStore, name: &str) -> Result<u32, Error> {
+    let key = format!("_counter_{name}");
+    Ok(kv.lookup(&key).map(|v| v.generation()).unwrap_or_default())
+}
+
 /// Increment a counter in the key value store, based on th
 fn increment_counter(kv: &KVStore, name: &str) -> Result<(), Error> {
     let key = format!("_counter_{name}");
-    let cnt = kv.lookup(&key).unwrap().generation() + 1;
+    let cnt = 1 + kv.lookup(&key).map(|v| v.generation()).unwrap_or_default();
     kv.build_insert()
         .mode(fastly::kv_store::InsertMode::Append)
         .execute(
@@ -227,13 +233,4 @@ fn increment_counter(kv: &KVStore, name: &str) -> Result<(), Error> {
             ),
         )?;
     Ok(())
-}
-
-/// Get a counter from the key value store
-fn get_counter(kv: &KVStore, name: &str) -> Result<u32, Error> {
-    let key = format!("_counter_{name}");
-    kv.build_insert()
-        .mode(fastly::kv_store::InsertMode::Add)
-        .execute(&key, "0")?;
-    Ok(kv.lookup(&key).unwrap().generation())
 }

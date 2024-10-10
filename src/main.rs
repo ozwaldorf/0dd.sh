@@ -52,10 +52,11 @@ const HELP_TEMPLATE: &str = "\
      have it cached still. Content ids are hashes, so re-uploaded
      content will always the same URL.
 
-     LIMITS
-         * Maximum file size  :  {max_size}
-         * Storage TTL        :  {kv_ttl}
-         * Cache TTL          :  {cache_ttl}
+ NOTES
+     * Maximum file size  :  {max_size}
+     * Storage TTL        :  {kv_ttl}
+     * Cache TTL          :  {cache_ttl}
+     * All time uploads   :  {upload_counter}
 
  EXAMPLES
      $ echo 'testing' | curl {host} -LT -
@@ -63,9 +64,6 @@ const HELP_TEMPLATE: &str = "\
 
      $ curl https://{host}/deadbeef
        testing
-
- NOTES
-     All time uploads: {upload_counter}
 
  CAVEATS
      Respect for intellectual property rights is paramount.

@@ -38,18 +38,31 @@ fn main(req: Request) -> Result<Response, Error> {
         std::env::var("FASTLY_SERVICE_VERSION").unwrap_or_default()
     );
 
-    let res = match req.get_method() {
+    let mut res = match req.get_method() {
         &Method::PUT => handle_put(req)?,
         &Method::GET | &Method::HEAD => handle_get(req)?,
         _ => Response::from_status(403).with_body("invalid request"),
     };
 
-    // enable hsts, cross origin sharing, disable iframe embeds
-    Ok(res
-        .with_header(header::STRICT_TRANSPORT_SECURITY, "max-age=2592000")
-        .with_header(header::REFERRER_POLICY, "origin-when-cross-origin")
-        .with_header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")
-        .with_header(header::X_FRAME_OPTIONS, "SAMEORIGIN"))
+    // Enable HSTS for 6mo
+    res.set_header(header::STRICT_TRANSPORT_SECURITY, "max-age=15768000");
+    // Allow CORS, deny CORP unless same origin
+    res.set_header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*");
+    res.set_header("Cross-Origin-Resource-Policy", "same-origin");
+    // On same-origin send full referrer header, only send url for others
+    res.set_header(header::REFERRER_POLICY, "strict-origin-when-cross-origin");
+    // Disable external iframe embeds
+    res.set_header(header::X_FRAME_OPTIONS, "SAMEORIGIN");
+    // - Allow static external resources
+    // - deny objects and embeds
+    // - deny all scripts
+    // - deny all frame ancestors
+    res.set_header(
+        header::CONTENT_SECURITY_POLICY,
+        "default-src *; object-src 'none'; script-src 'none'; frame-ancestors 'none'",
+    );
+
+    Ok(res)
 }
 
 /// Handle a request to put a paste into storage

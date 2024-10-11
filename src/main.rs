@@ -31,10 +31,6 @@ mod config {
     pub const UPLOAD_METRICS_KEY: &str = "_upload_metrics";
 }
 
-/// Helptext template (based on request hostname)
-const HELP_TEMPLATE: &str = include_str!("usage.txt");
-const PRIVACY_TEMPLATE: &str = include_str!("privacy.txt");
-
 #[fastly::main]
 fn main(req: Request) -> Result<Response, Error> {
     println!(
@@ -141,33 +137,33 @@ fn track_upload(kv: &KVStore, id: &str, file: &str) -> Result<(), Error> {
 
 /// Handle a request to get a paste
 fn handle_get(req: Request) -> Result<Response, Error> {
-    match req.get_url().path_segments().unwrap().next() {
+    let url = req.get_url();
+    let host = url.host().unwrap().to_string();
+    match url.path_segments().unwrap().next() {
         // Usage page
-        None => {
-            let host = req.get_url().host().unwrap().to_string();
-            let usage = get_usage(host)?;
+        Some("") => {
+            let usage = get_usage(&host)?;
             Ok(Response::from_body(usage).with_content_type(mime::TEXT_PLAIN_UTF_8))
         },
 
         // Privacy policy page
         Some("privacy") => {
-            Ok(Response::from_body(PRIVACY_TEMPLATE).with_content_type(mime::TEXT_PLAIN_UTF_8))
+            const PRIVACY: &str = include_str!("privacy.txt");
+            Ok(Response::from_body(PRIVACY).with_content_type(mime::TEXT_PLAIN_UTF_8))
         },
 
         // Paste download
         Some(id) if id.len() == config::ID_LENGTH => {
             let Ok((content, hash)) = get_paste(id) else {
-                return Ok(Response::from_status(404).with_body("not found"));
+                return Ok(Response::from_status(404).with_body(format!("{id} not found")));
             };
-
-            let origin_url = format!(
-                "https://{}/{id}#integrity=blake3-{hash}",
-                req.get_url().host().unwrap()
-            );
 
             // Respond with content
             Ok(Response::from_body(content)
-                .with_header("x-origin-url", origin_url)
+                .with_header(
+                    "x-origin-url",
+                    format!("https://{host}/{id}#integrity=blake3-{hash}",),
+                )
                 .with_header(
                     // Client-side cache control, content will never change
                     header::CACHE_CONTROL,
@@ -176,15 +172,18 @@ fn handle_get(req: Request) -> Result<Response, Error> {
         },
 
         // Unknown path
-        _ => Ok(Response::from_status(404).with_body("not found")),
+        Some(p) => Ok(Response::from_status(404).with_body(format!("{p} not found"))),
+        None => unreachable!(),
     }
 }
 
 /// Handle a request to the usage page
-fn get_usage(host: String) -> Result<Body, Error> {
-    let body = cache::simple::get_or_set_with(host.clone(), || {
+fn get_usage(host: &str) -> Result<Body, Error> {
+    const USAGE_TEMPLATE: &str = include_str!("usage.txt");
+
+    let body = cache::simple::get_or_set_with(host.to_string(), || {
         // Compute max line
-        let max_line = HELP_TEMPLATE.lines().map(|l| l.len()).max().unwrap() + 2;
+        let max_line = USAGE_TEMPLATE.lines().map(|l| l.len()).max().unwrap() + 2;
 
         // Build header
         let page = host.to_uppercase() + "(1)";
@@ -207,7 +206,7 @@ fn get_usage(host: String) -> Result<Body, Error> {
 
         // Render template
         let mut tt = TinyTemplate::new();
-        tt.add_template("usage", HELP_TEMPLATE).unwrap();
+        tt.add_template("usage", USAGE_TEMPLATE).unwrap();
         let rendered = tt.render(
             "usage",
             &json!({

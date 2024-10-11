@@ -1,9 +1,10 @@
 name: Fastly
+
 on:
   push:
     branches: [main]
     paths:
-      - '.github/workflows/deploy.yaml'
+      - '.github/workflows/fastly.yaml'
       - 'fastly.toml'
       - 'Cargo.*'
       - 'src/*'

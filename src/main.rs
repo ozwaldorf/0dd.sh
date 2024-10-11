@@ -1,6 +1,7 @@
 use std::io::{BufRead, Write};
 use std::time::SystemTime;
 
+use fastly::handle::BodyHandle;
 use fastly::http::{header, Method};
 use fastly::kv_store::InsertMode;
 use fastly::{cache, Error, KVStore, Request, Response};
@@ -41,13 +42,10 @@ fn main(req: Request) -> Result<Response, Error> {
     );
 
     Ok(match (req.get_method(), req.get_path()) {
-        (&Method::GET, "/") => handle_usage(req)?,
+        (&Method::GET | &Method::HEAD, "/") => handle_usage(req)?,
         (&Method::GET, "/privacy") => handle_privacy(),
-        (&Method::GET, _) => handle_get(req)?.with_header(
-            // Client-side cache control, content will never change
-            header::CACHE_CONTROL,
-            "public, s-maxage=31536000, immutable",
-        ),
+        (&Method::GET, _) => handle_get(req)?,
+        (&Method::HEAD, _) => handle_get(req)?,
         (&Method::PUT, _) => handle_put(req)?,
         _ => Response::from_status(403).with_body("invalid request"),
     }
@@ -141,12 +139,16 @@ fn handle_put(mut req: Request) -> Result<Response, Error> {
 
     println!("put {key} in storage");
 
-    // Respond with download URL
-    Ok(Response::from_body(format!(
-        "https://{host}/{id}{}\n",
+    let url = format!(
+        "https://{host}/{id}{}",
         filename.map(|v| "/".to_string() + v).unwrap_or_default()
-    ))
-    .with_header("x-content-hash", hash.to_string()))
+    );
+    let origin_url = format!("{url}#integrity=blake3-{hash}");
+
+    // Respond with download URL
+    Ok(Response::from_body(url + "\n")
+        .with_header("x-content-hash", hash.to_string())
+        .with_header("x-origin-url", origin_url))
 }
 
 /// Handle a request to get a paste
@@ -157,35 +159,53 @@ fn handle_get(req: Request) -> Result<Response, Error> {
     if id.len() != config::ID_LENGTH {
         return Ok(Response::from_status(404).with_body("not found"));
     }
-    let key = &format!("file_{id}");
 
-    // Try to find content in cache
-    if let Some(found) = cache::core::lookup(key.to_owned().into()).execute()? {
-        return Ok(Response::new()
-            .with_header("x-content-hash", found.user_metadata().as_ref())
-            .with_body(found.to_stream()?.into_handle()));
-    }
-
-    // Otherwise, get content from key value store (origin)
-    let kv = KVStore::open(config::KV_STORE)?.expect("kv store to exist");
-    let (meta, content) = match kv.lookup(key) {
-        Err(_) => return Ok(Response::from_status(404).with_body("not found")),
-        Ok(mut res) => (res.metadata().unwrap(), res.take_body_bytes()),
+    let Ok((content, hash)) = get_cached_content(id) else {
+        return Ok(Response::from_status(404).with_body("not found"));
     };
 
-    // Start building response with content hash header.
-    let res = Response::new().with_header("x-content-hash", meta.as_ref());
-
-    // Write content to cache
-    let mut w = cache::core::insert(key.to_owned().into(), config::CACHE_TTL)
-        .surrogate_keys(["get"])
-        .user_metadata(meta)
-        .execute()?;
-    w.write_all(&content)?;
-    w.finish()?;
+    let mut origin_url = req.get_url().clone();
+    origin_url.set_fragment(Some(&format!("integrity=blake3-{hash}")));
 
     // Respond with content
-    Ok(res.with_body(content))
+    Ok(Response::from_body(content)
+        .with_header("x-content-hash", hash)
+        .with_header("x-origin-url", origin_url)
+        .with_header(
+            // Client-side cache control, content will never change
+            header::CACHE_CONTROL,
+            "public, s-maxage=31536000, immutable",
+        ))
+}
+
+/// Get immutable content from the cache, or fallback to kv store and insert to cache.
+fn get_cached_content(id: &str) -> Result<(BodyHandle, String), Error> {
+    let key = "file_".to_string() + id;
+
+    // Try to find content in cache
+    if let Some(found) = cache::core::lookup(key.clone().into()).execute()? {
+        let meta = found.user_metadata();
+        let hash = String::from_utf8(meta.to_vec()).unwrap();
+
+        Ok((found.to_stream()?.into_handle(), hash))
+    } else {
+        // Otherwise, get content from key value store (origin)
+        let kv = KVStore::open(config::KV_STORE)?.expect("kv store to exist");
+        let mut res = kv.lookup(&key)?;
+        let meta = res.metadata().unwrap();
+        let hash = String::from_utf8(meta.to_vec()).unwrap();
+        let content = res.take_body_bytes();
+
+        // Write content to cache
+        let mut w = cache::core::insert(key.to_owned().into(), config::CACHE_TTL)
+            .surrogate_keys(["get"])
+            .user_metadata(meta)
+            .execute()?;
+        w.write_all(&content)?;
+        w.finish()?;
+
+        Ok((content.into(), hash))
+    }
 }
 
 /// Get upload count from the metadata, or fallback to the number of metric lines.

@@ -17,7 +17,7 @@ bs58 = "0.5"
 
 # Usage page deps
 tinytemplate = "1.2"
-serde_json = "1.0"
+serde_json = { version = "1.0", features = ["preserve_order"]}
 compile-time = "0.2"
 pad = "0.1"
 humanize-bytes = "1.0"

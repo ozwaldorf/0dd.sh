@@ -7,6 +7,7 @@ use fastly::kv_store::InsertMode;
 use fastly::{cache, Error, KVStore, Request, Response};
 use humanize_bytes::humanize_bytes_binary;
 use humantime::format_duration;
+use pad::PadStr;
 use serde_json::json;
 use tinytemplate::TinyTemplate;
 
@@ -61,14 +62,18 @@ fn handle_usage(req: Request) -> Result<Response, Error> {
     let url = req.get_url();
     let host = url.host().unwrap().to_string();
 
-    // Create padding for header
-    const MAX: usize = 70 - 6;
-    let hostlen = 3 * host.len();
-    let padding = " ".repeat(if hostlen < MAX {
-        ((MAX - (3 * host.len())) / 2 + 1).max(2)
-    } else {
-        2
-    });
+    // Build header
+    let page = host.to_uppercase() + "(1)";
+    let title =
+        "User Commands".pad_to_width_with_alignment(72 - 2 * page.len(), pad::Alignment::Middle);
+    let header = format!("{page}{title}{page}");
+
+    // Build footer
+    let version = std::env!("CARGO_PKG_VERSION");
+    let mut footer = format!("{host} {version}");
+    footer += &compile_time::date_str!()
+        .pad_to_width_with_alignment(72 - footer.len() - page.len(), pad::Alignment::Middle);
+    footer += &page;
 
     let kv = KVStore::open(config::KV_STORE)?.expect("kv store to exist");
     let upload_counter = get_upload_count(&kv);
@@ -79,13 +84,13 @@ fn handle_usage(req: Request) -> Result<Response, Error> {
     let rendered = tt.render(
         "usage",
         &json!({
+            "header": header,
             "host": host,
-            "host_caps": host.to_uppercase(),
-            "padding": padding,
             "max_size": *humanize_bytes_binary!(config::MAX_CONTENT_SIZE),
             "kv_ttl": format_duration(config::KV_TTL).to_string(),
             "cache_ttl": format_duration(config::CACHE_TTL).to_string(),
-            "upload_counter": upload_counter
+            "upload_counter": upload_counter,
+            "footer": footer,
         }),
     )?;
 

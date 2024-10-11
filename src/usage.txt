@@ -1,4 +1,4 @@
-{host}(1){padding}{host_caps}{padding}{host}(1)
+{header}
 
  NAME
      {host} - no bullshit command line pastebin
@@ -91,5 +91,7 @@
      * Source code      :  https://github.com/ozwaldorf/upld.is
      * Donations - ETH  :  0x45b2c262fae9c449f9067d65dcc82ba18d087241
 
-     Copyright (c) 2024 Ossian Mapes, Licensed under MIT
+     Copyright (c) 2024 Ossian Mapes, MIT license
+
+{footer}
 

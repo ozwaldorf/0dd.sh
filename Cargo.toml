@@ -1,8 +1,8 @@
 [package]
 name = "upldis"
-version = "0.1.0"
+version = "3.0.0"
 authors = ["ozwaldorf <self@ossian.dev>"]
-edition = "2018"
+edition = "2021"
 publish = false
 
 [profile.release]
@@ -10,11 +10,16 @@ debug = 1
 lto = 'fat'
 
 [dependencies]
+# Core functionality deps
 fastly = "0.11"
+blake3 = "1.5"
+bs58 = "0.5"
+
+# Usage page deps
 tinytemplate = "1.2"
 serde_json = "1.0"
+compile-time = "0.2"
+pad = "0.1"
 humanize-bytes = "1.0"
 humantime = "2.1"
-bs58 = "0.5"
-blake3 = "1.5"
 

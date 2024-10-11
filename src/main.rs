@@ -43,9 +43,8 @@ fn main(req: Request) -> Result<Response, Error> {
 
     Ok(match (req.get_method(), req.get_path()) {
         (&Method::GET | &Method::HEAD, "/") => handle_usage(req)?,
-        (&Method::GET, "/privacy") => handle_privacy(),
-        (&Method::GET, _) => handle_get(req)?,
-        (&Method::HEAD, _) => handle_get(req)?,
+        (&Method::GET | &Method::HEAD, "/privacy") => handle_privacy(),
+        (&Method::GET | &Method::HEAD, _) => handle_get(req)?,
         (&Method::PUT, _) => handle_put(req)?,
         _ => Response::from_status(403).with_body("invalid request"),
     }
@@ -143,12 +142,10 @@ fn handle_put(mut req: Request) -> Result<Response, Error> {
         "https://{host}/{id}{}",
         filename.map(|v| "/".to_string() + v).unwrap_or_default()
     );
-    let origin_url = format!("{url}#integrity=blake3-{hash}");
+    let origin_url = format!("https://{host}/{id}#integrity=blake3-{hash}");
 
     // Respond with download URL
-    Ok(Response::from_body(url + "\n")
-        .with_header("x-content-hash", hash.to_string())
-        .with_header("x-origin-url", origin_url))
+    Ok(Response::from_body(url + "\n").with_header("x-origin-url", origin_url))
 }
 
 /// Handle a request to get a paste
@@ -164,12 +161,13 @@ fn handle_get(req: Request) -> Result<Response, Error> {
         return Ok(Response::from_status(404).with_body("not found"));
     };
 
-    let mut origin_url = req.get_url().clone();
-    origin_url.set_fragment(Some(&format!("integrity=blake3-{hash}")));
+    let origin_url = format!(
+        "https://{}/{id}#integrity=blake3-{hash}",
+        req.get_url().host().unwrap()
+    );
 
     // Respond with content
     Ok(Response::from_body(content)
-        .with_header("x-content-hash", hash)
         .with_header("x-origin-url", origin_url)
         .with_header(
             // Client-side cache control, content will never change

@@ -165,6 +165,12 @@ fn handle_get(req: Request) -> Result<Response, Error> {
             Ok(Response::from_body(PRIVACY).with_content_type(mime::TEXT_PLAIN_UTF_8))
         },
 
+        // Favicon
+        Some("favicon.ico") => {
+            const FAVICON: &[u8] = include_bytes!("icons8-paste-special.png");
+            Ok(Response::from_body(FAVICON))
+        },
+
         // JSON information page
         Some("json") => {
             let kv = KVStore::open(config::KV_STORE)?.unwrap();

@@ -90,6 +90,7 @@
 
      * Privacy policy   :  https://{host}/privacy
      * Source code      :  https://github.com/ozwaldorf/upld.is
+     * Favicon by       :  https://icons8.com
      * Donations - ETH  :  0x45b2c262fae9c449f9067d65dcc82ba18d087241
 
      Copyright (c) 2024 Ossian Mapes, MIT license

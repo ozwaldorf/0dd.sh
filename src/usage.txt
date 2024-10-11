@@ -4,7 +4,7 @@
      {host} - no bullshit command line pastebin
 
  SYNOPSIS
-     * View helptext  :  curl {host} -L
+     * View helptext  :  curl {host} -L | less
      * Upload file    :  curl {host} -LT <file path>
      * Upload stdin   :  <command> | curl {host} -LT -
 
@@ -38,6 +38,19 @@
          $ curl https://{host}/Ag1BhjbD
            testing
 
+     * Sending and applying a git patch:
+         $ git diff | curl {host} -LT -
+           https://{host}/deadbeef
+         $ git apply <(curl https://{host}/deadbeef)
+
+     * Password encryption (using gpg):
+         $ echo 'testing' | gpg -o- -c | curl {host} -LT -
+           https://{host}/exmpLhsh
+         $ curl https://{host}/exmpLhsh | gpg -d
+           gpg: AES256.CFB encrypted data
+           gpg: encrypted with 1 passphrase
+           testing
+
      * Verified upload (using b3sum + bs58-cli):
          $ echo 'testing' > file
          $ b3sum file --raw | bs58
@@ -51,18 +64,25 @@
          $ cat ./file
            testing
 
-     * Simple password encryption (using gpg):
-         $ echo 'testing' | gpg -o- -c | curl {host} -LT -
-           https://{host}/exmpLhsh
-         $ curl https://{host}/exmpLhsh | gpg -d
-           gpg: AES256.CFB encrypted data
-           gpg: encrypted with 1 passphrase
-           testing
+ HISTORY
+     * v0.1.0 | Jan 2016 | sprunge.me
+         Single host, disk-backed sprunge.us copy written in golang.
+         Featured syntax highlighting via pygments like the original.
 
-     * Sending and applying a git patch:
-         $ git diff | curl {host} -LT -
-           https://{host}/deadbeef
-         $ git apply <(curl https://{host}/deadbeef)
+     * v1.0.0 | Mar 2017 | comp.st
+         Enhanced with many features like automatic paste deletion,
+         custom upload directories, markdown rendering, throwaway email
+         addresses, and virustotal scanning.
+
+     * v2.0.0 | Mar 2022 | upld.is
+         Resurfaced source code and removed complex features. Moved to
+         an ipfs based storage approach and added an interactive HTML
+         frontend.
+
+     * v3.0.0 | Oct 2024 | upld.is, taa.gg
+         We're back :) Tamper-proof edge service, rewritten from
+         scratch in rust. Shorter urls, while still keeping everything
+         verifiable using blake3. Removed legacy POST upload method.
 
  SEE ALSO
      curl(1), gpg(1), b3sum, bs58-cli
@@ -71,7 +91,5 @@
      * Source code      :  https://github.com/ozwaldorf/upld.is
      * Donations - ETH  :  0x45b2c262fae9c449f9067d65dcc82ba18d087241
 
- COPYRIGHT
-     Copyright (c) 2024 Ossian Mapes.
-     This work is licensed under the terms of the MIT license.
-     For a copy, see https://opensource.org/licenses/MIT
+     Copyright (c) 2024 Ossian Mapes, Licensed under MIT
+

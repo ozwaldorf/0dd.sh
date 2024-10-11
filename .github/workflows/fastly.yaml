@@ -9,6 +9,9 @@ on:
       - 'Cargo.*'
       - 'src/*'
 
+env:
+  RUSTFLAGS: -Ctarget-feature=-reference-types
+
 jobs:
   deploy:
     runs-on: ubuntu-latest

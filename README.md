@@ -22,4 +22,6 @@ curl https://upld.is/xxyyzzaa
 ```
 fastly compute build
 fastly compute deploy
+fastly kv-store list
+fastly kv-store-entry describe -qs <id> -k _upload_metrics
 ```

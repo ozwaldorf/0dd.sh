@@ -11,16 +11,14 @@
  DESCRIPTION
      A simple, no bullshit, tamper-proof command line pastebin.
 
-     Pastes are created using HTTP PUT requests, which returns a
-     determanistic paste URL. Filenames are ignored in the URL
-     and can be modified or removed entirely.
+     Pastes are created using HTTP PUT requests, which returns a URL
+     based on the hash of the content. Filenames are ignored and can
+     be added, modified, or removed entirely.
 
-     Paste downloads can be verified by doing the following:
-         1) Get the checksum from the HTTP header `x-content-hash`
-         2) Verify the checksum by re-encoding with base58 and
-            ensuring it matches the slice in the paste URL
-         3) Verify the recieved content by hashing with blake3 and
-            comparing against the checksum.
+     Upload URLs and downloaded content can be optionally verified
+     by hashing the content with blake3 and encoding the raw hash
+     with base58. If the id in the URL does not match, the server
+     response is invalid and the service has been tampered with.
 
      Pastes are always deleted from storage after some time. Once
      deleted, the content will remain available in regions that have
@@ -34,16 +32,29 @@
      * All time uploads    :  {upload_counter}
 
  EXAMPLES
-     * Upload and download:
+     * Upload from stdin:
          $ echo 'testing' | curl {host} -LT -
-           https://{host}/deadbeef
-         $ curl https://{host}/deadbeef
+           https://{host}/Ag1BhjbD
+         $ curl https://{host}/Ag1BhjbD
            testing
 
-     * Encrypted upload and download:
+     * Verified upload (using b3sum + bs58-cli):
+         $ echo 'testing' > file
+         $ b3sum file --raw | bs58
+           Ag1BhjbDQMUjq2rEQVgTNMPFEm8gTUmaJTRw4LUx1u78
+         $ curl {host} -LT file
+           https://{host}/Ag1BhjbD
+
+     * Verified download (using b3sum + bs58-cli):
+         $ curl https://{host}/Ag1BhjbD | tee file | b3sum --raw | bs58
+           Ag1BhjbDQMUjq2rEQVgTNMPFEm8gTUmaJTRw4LUx1u78
+         $ cat ./file
+           testing
+
+     * Simple password encryption (using gpg):
          $ echo 'testing' | gpg -o- -c | curl {host} -LT -
-           https://{host}/deadbeef
-         $ curl https://{host}/deadbeef | gpg -d
+           https://{host}/exmpLhsh
+         $ curl https://{host}/exmpLhsh | gpg -d
            gpg: AES256.CFB encrypted data
            gpg: encrypted with 1 passphrase
            testing
@@ -54,9 +65,11 @@
          $ git apply <(curl https://{host}/deadbeef)
 
  SEE ALSO
+     curl(1), gpg(1), b3sum, bs58-cli
+
      * Privacy policy   :  https://{host}/privacy
      * Source code      :  https://github.com/ozwaldorf/upld.is
-     * Donations (ETH)  :  0x45b2c262fae9c449f9067d65dcc82ba18d087241
+     * Donations - ETH  :  0x45b2c262fae9c449f9067d65dcc82ba18d087241
 
  COPYRIGHT
      Copyright (c) 2024 Ossian Mapes.

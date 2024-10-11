@@ -1,6 +1,9 @@
-# upld.is
+# no bullshit command line pastebin
 
-no bullshit command line pastebin [upld.is](https://upld.is)
+[![uploads](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fupld.is%2Fjson&query=%24.uploads&style=for-the-badge&label=uploads)](https://upld.is/json)
+[![get upld.is](https://img.shields.io/website?url=https%3A%2F%2Fupld.is&style=for-the-badge&label=GET%20upld.is)](https://upld.is)
+[![get taa.gg](https://img.shields.io/website?url=https%3A%2F%2Ftaa.gg&style=for-the-badge&label=GET%20taa.gg)](https://taa.gg)
+[![fastly deploy](https://img.shields.io/github/actions/workflow/status/ozwaldorf/upld.is/fastly.yaml?style=for-the-badge&label=fastly%20deploy)](https://github.com/ozwaldorf/upld.is/actions/workflows/fastly.yaml)
 
 ## Usage
 

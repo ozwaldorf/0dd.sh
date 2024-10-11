@@ -15,15 +15,14 @@
      based on the hash of the content. Filenames are ignored and can
      be added, modified, or removed entirely.
 
-     Upload URLs and downloaded content can be optionally verified
-     by hashing the content with blake3 and encoding the raw hash
-     with base58. If the id in the URL does not match, the server
-     response is invalid and the service has been tampered with.
+     Upload URLs and downloaded content can be optionally verified by
+     hashing the content with blake3 and encoding the raw hash with
+     base58. If the id in the URL does not match, the server response
+     is invalid and the service has been tampered with.
 
-     Pastes are always deleted from storage after some time. Once
-     deleted, the content will remain available in regions that have
-     it cached still. However, content can always be re-uploaded to
-     the same paste URL.
+     Pastes are always deleted from storage after some time, however,
+     the content will remain available in regions that have it cached
+     still. Content can always be re-uploaded to the same paste URL.
 
  NOTES
      * Maximum file size   :  {max_size}
@@ -65,19 +64,21 @@
            testing
 
  HISTORY
-     * v0.1.0 | Jan 2016 | sprunge.me
+     * v0.1.0 | May 2017 | sprunge.me
          Single host, disk-backed sprunge.us copy written in golang.
          Featured syntax highlighting via pygments like the original.
 
-     * v1.0.0 | Mar 2017 | comp.st
+     * v1.0.0 | Jul 2017 | comp.st
          Enhanced with many features like automatic paste deletion,
          custom upload directories, markdown rendering, throwaway email
          addresses, and virustotal scanning.
 
-     * v2.0.0 | Mar 2022 | upld.is
-         Resurfaced source code and removed complex features. Moved to
-         an ipfs based storage approach and added an interactive HTML
-         frontend.
+     * v2.0.0 | Dec 2021 | upld.is
+         Resurfaced source code and removed complex features.
+
+     * v2.1.0 | Mar 2022 | upld.is
+         Moved to an ipfs based storage approach, added an interactive
+         HTML frontend.
 
      * v3.0.0 | Oct 2024 | upld.is, taa.gg
          We're back :) Tamper-proof edge service, rewritten from

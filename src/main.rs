@@ -61,18 +61,19 @@ fn handle_usage(req: Request) -> Result<Response, Error> {
     // Get hostname from request
     let url = req.get_url();
     let host = url.host().unwrap().to_string();
+    let max_line = HELP_TEMPLATE.lines().map(|l| l.len()).max().unwrap() + 2;
 
     // Build header
     let page = host.to_uppercase() + "(1)";
-    let title =
-        "User Commands".pad_to_width_with_alignment(72 - 2 * page.len(), pad::Alignment::Middle);
+    let title = "User Commands"
+        .pad_to_width_with_alignment(max_line - 2 * page.len(), pad::Alignment::Middle);
     let header = format!("{page}{title}{page}");
 
     // Build footer
     let version = std::env!("CARGO_PKG_VERSION");
     let mut footer = format!("{host} {version}");
     footer += &compile_time::date_str!()
-        .pad_to_width_with_alignment(72 - footer.len() - page.len(), pad::Alignment::Middle);
+        .pad_to_width_with_alignment(max_line - footer.len() - page.len(), pad::Alignment::Middle);
     footer += &page;
 
     let kv = KVStore::open(config::KV_STORE)?.expect("kv store to exist");

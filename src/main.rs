@@ -16,7 +16,7 @@ mod config {
     use std::time::Duration;
 
     /// Upload ID length, up to 64 bytes
-    pub const ID_LENGTH: usize = 8;
+    pub const ID_SIZE: usize = 8;
     /// Minimum content size in bytes
     pub const MIN_CONTENT_SIZE: usize = 32;
     /// Maximum content size in bytes
@@ -77,7 +77,7 @@ fn handle_put(mut req: Request) -> Result<Response, Error> {
     // Hash content and use a section of base58 encoding for the id
     let hash = blake3::hash(&body);
     let base = bs58::encode(hash.as_bytes()).into_string();
-    let id = &base[..config::ID_LENGTH];
+    let id = &base[..config::ID_SIZE];
     let key = &format!("file_{id}");
 
     // Insert content to key value store
@@ -152,8 +152,21 @@ fn handle_get(req: Request) -> Result<Response, Error> {
             Ok(Response::from_body(PRIVACY).with_content_type(mime::TEXT_PLAIN_UTF_8))
         },
 
+        // JSON information page
+        Some("json") => {
+            let kv = KVStore::open(config::KV_STORE)?.unwrap();
+            let cnt = get_upload_count(&kv);
+            let json = serde_json::to_string_pretty(&json!({
+                "uploads": cnt,
+                "id_size": config::ID_SIZE,
+                "kv_ttl": format_duration(config::KV_TTL).to_string(),
+                "cache_ttl": format_duration(config::CACHE_TTL).to_string()
+            }))?;
+            Ok(Response::from_body(json))
+        },
+
         // Paste download
-        Some(id) if id.len() == config::ID_LENGTH => {
+        Some(id) if id.len() == config::ID_SIZE => {
             let Ok((content, hash)) = get_paste(id) else {
                 return Ok(Response::from_status(404).with_body(format!("{id} not found")));
             };

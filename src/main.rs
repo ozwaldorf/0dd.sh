@@ -161,27 +161,24 @@ fn handle_get(req: Request) -> Result<Response, Error> {
             // For all other clients other than curl, wrap with html (ie, browsers)
             if let Some(agent) = req.get_header_str("user-agent") {
                 if !agent.starts_with("curl") {
-                    let wrapped = "\
+                    let wrapped = format!(
+                        "\
 <!DOCTYPE html>
 <html>
     <head>
-        <title>no bs pastebin</title>
+        <title>{host} - no bs pastebin</title>
     </head>
     <style>
-        body {
+        body {{
             color: #f4f4f4;
             background-color: #0b0b0b;
-        }
+        }}
     </style>
-    <body>
-        <pre>"
-                        .to_string()
-                        + htmlescape::encode_minimal(&String::from_utf8_lossy(&usage.into_bytes()))
+    <body><pre>{}</pre></body>
+</html>",
+                        htmlescape::encode_minimal(&String::from_utf8_lossy(&usage.into_bytes()))
                             .as_str()
-                        + "\
-        </pre>
-    </body>
-</html>";
+                    );
 
                     return Ok(Response::new().with_body_text_html(&wrapped));
                 }

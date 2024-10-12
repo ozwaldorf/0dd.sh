@@ -226,10 +226,12 @@ fn get_usage(host: &str) -> Result<Body, Error> {
         // Build footer
         let version = std::env!("CARGO_PKG_VERSION");
         let mut footer = format!("{host} {version}");
+        let offset = footer.len() - page.len();
         footer += &compile_time::date_str!().pad_to_width_with_alignment(
-            max_line - footer.len() - page.len(),
+            max_line - footer.len() - page.len() - offset,
             pad::Alignment::Middle,
         );
+        footer += &" ".repeat(offset);
         footer += &page;
 
         // Get upload counter

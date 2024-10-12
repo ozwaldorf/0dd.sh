@@ -44,12 +44,15 @@ fn main(req: Request) -> Result<Response, Error> {
         _ => Response::from_status(403).with_body("invalid request"),
     };
 
+    // Enable fastly dynamic compression
+    res.set_header("x-compress-hint", "on");
+
     // Enable HSTS for 6mo
     res.set_header(header::STRICT_TRANSPORT_SECURITY, "max-age=15768000");
 
     // Allow CORS, deny CORP unless same origin
     res.set_header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*");
-    res.set_header("Cross-Origin-Resource-Policy", "same-origin");
+    res.set_header("cross-origin-resource-policy", "same-origin");
 
     // On same-origin send full referrer header, only send url for others
     res.set_header(header::REFERRER_POLICY, "strict-origin-when-cross-origin");

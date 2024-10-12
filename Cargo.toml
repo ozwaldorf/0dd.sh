@@ -22,4 +22,5 @@ compile-time = "0.2"
 pad = "0.1"
 humanize-bytes = "1.0"
 humantime = "2.1"
+urlencoding = "2.1.3"
 

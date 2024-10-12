@@ -152,17 +152,30 @@ fn track_upload(kv: &KVStore, id: &str, file: &str) -> Result<(), Error> {
 fn handle_get(req: Request) -> Result<Response, Error> {
     let url = req.get_url();
     let host = url.host().unwrap().to_string();
-    match url.path_segments().unwrap().next() {
+    let mut segments = url.path_segments().unwrap();
+    match segments.next() {
         // Usage page
         Some("") => {
             let usage = get_usage(&host)?;
-            Ok(Response::from_body(usage).with_content_type(mime::TEXT_PLAIN_UTF_8))
+            Ok(Response::from_body(usage)
+                .with_content_type(mime::TEXT_PLAIN_UTF_8)
+                .with_header(
+                    // Some browsers will set the title to this header
+                    header::CONTENT_DISPOSITION,
+                    r#"inline; filename="no bs pastebin.txt"; filename*=UTF-8''no%20bs%20pastebin.txt"#,
+                ))
         },
 
         // Privacy policy page
         Some("privacy") => {
             const PRIVACY: &str = include_str!("privacy.txt");
-            Ok(Response::from_body(PRIVACY).with_content_type(mime::TEXT_PLAIN_UTF_8))
+            Ok(Response::from_body(PRIVACY)
+                .with_content_type(mime::TEXT_PLAIN_UTF_8)
+                .with_header(
+                    // Some browsers will set the title to this header
+                    header::CONTENT_DISPOSITION,
+                    r#"inline; filename="privacy.txt"; filename*=UTF-8''privacy.txt"#,
+                ))
         },
 
         // Favicon
@@ -190,16 +203,26 @@ fn handle_get(req: Request) -> Result<Response, Error> {
                 return Ok(Response::from_status(404).with_body(format!("{id} not found")));
             };
 
+            let filename = segments.last().unwrap_or("no bs pastebin.txt");
+
             // Respond with content
             Ok(Response::from_body(content)
                 .with_header(
                     "x-origin-url",
-                    format!("https://{host}/{id}#integrity=blake3-{hash}",),
+                    format!("https://{host}/{id}#integrity=blake3-{hash}"),
                 )
                 .with_header(
                     // Client-side cache control, content will never change
                     header::CACHE_CONTROL,
                     "public, s-maxage=31536000, immutable",
+                )
+                .with_header(
+                    // Some browsers will set the title to this header
+                    header::CONTENT_DISPOSITION,
+                    format!(
+                        r#"inline; filename="{filename}"; filename*=UTF-8''{}"#,
+                        urlencoding::encode(filename)
+                    ),
                 ))
         },
 

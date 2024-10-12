@@ -59,7 +59,7 @@ fn main(req: Request) -> Result<Response, Error> {
     // - deny all frame ancestors
     res.set_header(
         header::CONTENT_SECURITY_POLICY,
-        "default-src *; object-src 'none'; script-src 'none'; frame-ancestors 'none'",
+        "default-src *; style-src * 'unsafe-inline'; object-src 'none'; script-src 'none'; frame-ancestors 'none'",
     );
 
     Ok(res)
@@ -167,6 +167,12 @@ fn handle_get(req: Request) -> Result<Response, Error> {
     <head>
         <title>no bs pastebin</title>
     </head>
+    <style>
+        body {
+            color: #f4f4f4;
+            background-color: #0b0b0b;
+        }
+    </style>
     <body>
         <pre>"
                         .to_string()

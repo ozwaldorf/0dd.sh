@@ -1,6 +1,7 @@
 use std::io::{BufRead, Write};
 use std::time::{Duration, SystemTime};
 
+use base64::Engine;
 use fastly::cache::simple::CacheEntry;
 use fastly::handle::BodyHandle;
 use fastly::http::{Method, header};
@@ -11,6 +12,7 @@ use humantime::format_duration;
 use pad::PadStr;
 use serde_json::json;
 use tinytemplate::TinyTemplate;
+use types::FileMetadata;
 
 mod config {
     use std::time::Duration;
@@ -29,6 +31,31 @@ mod config {
     pub const CACHE_TTL: Duration = Duration::from_secs(30 * 86400);
     /// Key to store upload metrics under
     pub const UPLOAD_METRICS_KEY: &str = "_upload_metrics";
+}
+
+mod types {
+    use std::borrow::Cow;
+
+    use serde::{Deserialize, Serialize};
+
+    #[derive(Serialize, Deserialize)]
+    pub struct FileMetadata<'a> {
+        pub hash: [u8; 32],
+        pub mime: Cow<'a, str>,
+    }
+
+    impl FileMetadata<'_> {
+        pub fn new(hash: [u8; 32], mime: String) -> Self {
+            Self {
+                hash,
+                mime: Cow::Owned(mime),
+            }
+        }
+
+        pub fn mime(&self) -> &str {
+            &self.mime
+        }
+    }
 }
 
 #[fastly::main]
@@ -57,7 +84,8 @@ fn main(req: Request) -> Result<Response, Error> {
     // On same-origin send full referrer header, only send url for others
     res.set_header(header::REFERRER_POLICY, "strict-origin-when-cross-origin");
 
-    // Disable external iframe embeds (legacy)
+    // Disable content sniffing, external iframe embeds
+    res.set_header(header::X_CONTENT_TYPE_OPTIONS, "nosniff");
     res.set_header(header::X_FRAME_OPTIONS, "SAMEORIGIN");
 
     // - Allow static external resources
@@ -111,8 +139,24 @@ fn handle_put(mut req: Request) -> Result<Response, Error> {
     // Insert content to key value store
     let kv = KVStore::open(config::KV_STORE)?.expect("kv store to exist");
     if kv.lookup(key).is_err() {
+        // try and detect mime type from magic byte sequences
+        let mime = infer::get(&body).map(|t| t.to_string()).unwrap_or_else(|| {
+            // try to detect from the (optionally) given filename
+            if let Some(mime) = filename.and_then(|f| mime_guess::from_path(f).into_iter().next()) {
+                mime.to_string()
+            } else if std::str::from_utf8(&body).is_ok() {
+                // if it's valid utf-8
+                mime::TEXT_PLAIN_UTF_8.to_string()
+            } else {
+                // fallback to raw octet stream bytes
+                mime::APPLICATION_OCTET_STREAM.to_string()
+            }
+        });
+
+        let meta = types::FileMetadata::new(hash.into(), mime);
+
         kv.build_insert()
-            .metadata(&hash.to_hex())
+            .metadata(&serde_json::to_string(&meta).unwrap())
             .time_to_live(config::KV_TTL)
             .execute(key, body)?;
         track_upload(&kv, id, filename.unwrap_or("undefined"))?;
@@ -124,10 +168,15 @@ fn handle_put(mut req: Request) -> Result<Response, Error> {
         "https://{host}/{id}{}",
         filename.map(|v| "/".to_string() + v).unwrap_or_default()
     );
-    let origin_url = format!("https://{host}/{id}#integrity=blake3-{hash}");
+    let origin_url = format!(
+        "https://{host}/{id}#integrity=blake3-{}",
+        base64::engine::general_purpose::STANDARD.encode(hash.as_bytes())
+    );
 
     // Respond with download URL
-    Ok(Response::from_body(url + "\n").with_header("x-origin-url", origin_url))
+    Ok(Response::from_body(url + "\n")
+        .with_content_type(mime::TEXT_PLAIN_UTF_8)
+        .with_header("x-origin-url", origin_url))
 }
 
 /// Get upload count from the metadata, or fallback to the number of metric lines.
@@ -200,19 +249,33 @@ fn handle_get(req: Request) -> Result<Response, Error> {
         // Privacy policy page
         Some("privacy") => {
             const PRIVACY: &str = include_str!("privacy.txt");
-            Ok(Response::from_body(PRIVACY)
-                .with_content_type(mime::TEXT_PLAIN_UTF_8)
-                .with_header(
-                    // Some browsers will set the title to this header
-                    header::CONTENT_DISPOSITION,
-                    r#"inline; filename="privacy.txt"; filename*=UTF-8''privacy.txt"#,
-                ))
+
+            // For all other clients other than curl, wrap with html (ie, browsers)
+            if let Some(agent) = req.get_header_str("user-agent") {
+                if !agent.starts_with("curl") {
+                    let wrapped = format!(
+                        "\
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>{host} - privacy policy</title>
+        <meta name=\"description\" content=\"{host} privacy policy\">
+    </head>
+    <body style=\"color: #f4f4f4; background: #0b0b0b\"><pre>{PRIVACY}</pre></body>
+</html>",
+                    );
+
+                    return Ok(Response::new().with_body_text_html(&wrapped));
+                }
+            }
+
+            Ok(Response::from_body(PRIVACY).with_content_type(mime::TEXT_PLAIN_UTF_8))
         },
 
         // Favicon
         Some("favicon.ico") => {
             const FAVICON: &[u8] = include_bytes!("icons8-paste-special.png");
-            Ok(Response::from_body(FAVICON))
+            Ok(Response::from_body(FAVICON).with_content_type(mime::IMAGE_PNG))
         },
 
         // JSON information page
@@ -225,28 +288,36 @@ fn handle_get(req: Request) -> Result<Response, Error> {
                 "kv_ttl": format_duration(config::KV_TTL).to_string(),
                 "cache_ttl": format_duration(config::CACHE_TTL).to_string()
             }))?;
-            Ok(Response::from_body(json))
+            Ok(Response::from_body(json).with_content_type(mime::APPLICATION_JSON))
         },
 
         // Paste download
         Some(id) if id.len() == config::ID_SIZE => {
-            let Ok((content, hash)) = get_paste(id) else {
+            let Ok((content, meta)) = get_paste(id) else {
                 return Ok(Response::from_status(404).with_body(format!("{id} not found")));
             };
 
-            let filename = segments.last().unwrap_or("no bs pastebin.txt");
+            let last = segments.last();
+            let filename = last.unwrap_or("no bs pastebin.txt");
 
             // Respond with content
             Ok(Response::from_body(content)
+                // Fleek network SRI origin url
                 .with_header(
-                    "x-origin-url",
-                    format!("https://{host}/{id}#integrity=blake3-{hash}"),
+                    "x-sri-url",
+                    format!(
+                        "https://{host}/{id}#integrity=blake3-{}",
+                        base64::engine::general_purpose::STANDARD.encode(meta.hash)
+                    ),
                 )
+                // Immutable client caching
                 .with_header(
                     // Client-side cache control, content will never change
                     header::CACHE_CONTROL,
                     "public, s-maxage=31536000, immutable",
                 )
+                // Content type and disposition
+                .with_header(header::CONTENT_TYPE, meta.mime())
                 .with_header(
                     // Some browsers will set the title to this header
                     header::CONTENT_DISPOSITION,
@@ -258,7 +329,7 @@ fn handle_get(req: Request) -> Result<Response, Error> {
         },
 
         // Unknown path
-        Some(p) => Ok(Response::from_status(404).with_body(format!("{p} not found"))),
+        Some(p) => Ok(Response::from_status(404).with_body_text_plain(&format!("{p} not found"))),
         None => unreachable!(),
     }
 }
@@ -319,31 +390,29 @@ fn get_usage(host: &str) -> Result<Body, Error> {
 }
 
 /// Get immutable content from the cache, or fallback to kv store and insert to cache.
-fn get_paste(id: &str) -> Result<(BodyHandle, String), Error> {
+fn get_paste(id: &str) -> Result<(BodyHandle, FileMetadata), Error> {
     let key = "file_".to_string() + id;
 
     // Try to find content in cache
     if let Some(found) = cache::core::lookup(key.clone().into()).execute()? {
-        let meta = found.user_metadata();
-        let hash = String::from_utf8(meta.to_vec()).unwrap();
-
-        Ok((found.to_stream()?.into_handle(), hash))
+        let meta = serde_json::from_slice(&found.user_metadata()).expect("corrupted metadata");
+        Ok((found.to_stream()?.into_handle(), meta))
     } else {
         // Otherwise, get content from key value store (origin)
         let kv = KVStore::open(config::KV_STORE)?.expect("kv store to exist");
         let mut res = kv.lookup(&key)?;
-        let meta = res.metadata().unwrap();
-        let hash = String::from_utf8(meta.to_vec()).unwrap();
+        let meta_bytes = res.metadata().unwrap();
+        let meta = serde_json::from_slice(&meta_bytes).expect("corrupted metadata");
         let content = res.take_body_bytes();
 
         // Write content & metadata to cache
         let mut w = cache::core::insert(key.to_owned().into(), config::CACHE_TTL)
             .surrogate_keys(["get"])
-            .user_metadata(meta)
+            .user_metadata(meta_bytes)
             .execute()?;
         w.write_all(&content)?;
         w.finish()?;
 
-        Ok((content.into(), hash))
+        Ok((content.into(), meta))
     }
 }

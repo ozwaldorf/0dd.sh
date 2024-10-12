@@ -14,9 +14,13 @@ lto = 'fat'
 fastly = "0.11"
 blake3 = "1.5"
 bs58 = "0.5"
+base64 = "0.22"
+infer = "0.16"
+mime_guess = "2.0"
 
 # Usage page deps
 tinytemplate = "1.2"
+serde = { version = "1.0", features = ["derive"]}
 serde_json = { version = "1.0", features = ["preserve_order"]}
 compile-time = "0.2"
 pad = "0.1"

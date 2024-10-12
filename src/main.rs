@@ -1,4 +1,4 @@
-use std::io::{BufRead, Read, Write};
+use std::io::{BufRead, Write};
 use std::time::{Duration, SystemTime};
 
 use fastly::cache::simple::CacheEntry;
@@ -46,20 +46,32 @@ fn main(req: Request) -> Result<Response, Error> {
 
     // Enable HSTS for 6mo
     res.set_header(header::STRICT_TRANSPORT_SECURITY, "max-age=15768000");
+
     // Allow CORS, deny CORP unless same origin
     res.set_header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*");
     res.set_header("Cross-Origin-Resource-Policy", "same-origin");
+
     // On same-origin send full referrer header, only send url for others
     res.set_header(header::REFERRER_POLICY, "strict-origin-when-cross-origin");
-    // Disable external iframe embeds
+
+    // Disable external iframe embeds (legacy)
     res.set_header(header::X_FRAME_OPTIONS, "SAMEORIGIN");
+
     // - Allow static external resources
+    // - Allow external and inline styles
     // - deny objects and embeds
     // - deny all scripts
     // - deny all frame ancestors
     res.set_header(
         header::CONTENT_SECURITY_POLICY,
-        "default-src *; style-src * 'unsafe-inline'; object-src 'none'; script-src 'none'; frame-ancestors 'none'",
+        [
+            "default-src *",
+            "style-src * 'unsafe-inline'",
+            "object-src 'none'",
+            "script-src 'none'",
+            "frame-ancestors 'none'",
+        ]
+        .join(";"),
     );
 
     Ok(res)
@@ -167,14 +179,9 @@ fn handle_get(req: Request) -> Result<Response, Error> {
 <html>
     <head>
         <title>{host} - no bs pastebin</title>
+        <meta name=\"description\" content=\"{host} - no bs command line pastebin\">
     </head>
-    <style>
-        body {{
-            color: #f4f4f4;
-            background-color: #0b0b0b;
-        }}
-    </style>
-    <body><pre>{}</pre></body>
+    <body style=\"color: #f4f4f4; background: #0b0b0b\"><pre>{}</pre></body>
 </html>",
                         htmlescape::encode_minimal(&String::from_utf8_lossy(&usage.into_bytes()))
                             .as_str()

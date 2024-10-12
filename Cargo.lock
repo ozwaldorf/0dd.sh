@@ -362,6 +362,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "pastebin"
+version = "3.0.0"
+dependencies = [
+ "blake3",
+ "bs58",
+ "compile-time",
+ "fastly",
+ "humanize-bytes",
+ "humantime",
+ "pad",
+ "serde_json",
+ "tinytemplate",
+ "urlencoding",
+]
+
+[[package]]
 name = "percent-encoding"
 version = "2.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -635,22 +651,6 @@ name = "unicode-width"
 version = "0.1.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7dd6e30e90baa6f72411720665d41d89b9a3d039dc45b8faea1ddd07f617f6af"
-
-[[package]]
-name = "upldis"
-version = "3.0.0"
-dependencies = [
- "blake3",
- "bs58",
- "compile-time",
- "fastly",
- "humanize-bytes",
- "humantime",
- "pad",
- "serde_json",
- "tinytemplate",
- "urlencoding",
-]
 
 [[package]]
 name = "url"

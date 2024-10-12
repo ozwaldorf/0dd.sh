@@ -1,5 +1,5 @@
 manifest_version = 3
-name = "upld.is"
+name = "pastebin"
 description = "No bullshit command line pastebin"
 authors = ["self@ossian.dev"]
 language = "rust"

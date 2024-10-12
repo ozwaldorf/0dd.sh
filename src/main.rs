@@ -22,7 +22,7 @@ mod config {
     /// Maximum content size in bytes
     pub const MAX_CONTENT_SIZE: usize = 24 << 20;
     /// Fastly key-value storage name
-    pub const KV_STORE: &str = "upldis storage";
+    pub const KV_STORE: &str = "paste storage";
     /// TTL for content
     pub const KV_TTL: Duration = Duration::from_secs(7 * 86400);
     /// Request cache ttl

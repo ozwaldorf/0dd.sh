@@ -1,5 +1,5 @@
 [package]
-name = "upldis"
+name = "pastebin"
 version = "3.0.0"
 authors = ["ozwaldorf <self@ossian.dev>"]
 edition = "2021"

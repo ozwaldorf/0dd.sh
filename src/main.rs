@@ -1,4 +1,4 @@
-use std::io::{BufRead, Write};
+use std::io::{BufRead, Read, Write};
 use std::time::{Duration, SystemTime};
 
 use fastly::cache::simple::CacheEntry;
@@ -157,13 +157,31 @@ fn handle_get(req: Request) -> Result<Response, Error> {
         // Usage page
         Some("") => {
             let usage = get_usage(&host)?;
-            Ok(Response::from_body(usage)
-                .with_content_type(mime::TEXT_PLAIN_UTF_8)
-                .with_header(
-                    // Some browsers will set the title to this header
-                    header::CONTENT_DISPOSITION,
-                    r#"inline; filename="no bs pastebin.txt"; filename*=UTF-8''no%20bs%20pastebin.txt"#,
-                ))
+
+            // For all other clients other than curl, wrap with html (ie, browsers)
+            if let Some(agent) = req.get_header_str("user-agent") {
+                if !agent.starts_with("curl") {
+                    let wrapped = "\
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>no bs pastebin</title>
+    </head>
+    <body>
+        <pre>"
+                        .to_string()
+                        + htmlescape::encode_minimal(&String::from_utf8_lossy(&usage.into_bytes()))
+                            .as_str()
+                        + "\
+        </pre>
+    </body>
+</html>";
+
+                    return Ok(Response::new().with_body_text_html(&wrapped));
+                }
+            }
+
+            Ok(Response::from_body(usage).with_content_type(mime::TEXT_PLAIN_UTF_8))
         },
 
         // Privacy policy page

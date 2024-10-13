@@ -242,9 +242,7 @@ fn handle_get(req: Request) -> Result<Response, Error> {
         </style>
     </head>
     <body>
-        <pre>
-{}
-        </pre>
+        <pre>\n{}</pre>
     </body>
 </html>",
                         htmlescape::encode_minimal(&String::from_utf8_lossy(&usage.into_bytes()))
@@ -282,9 +280,7 @@ fn handle_get(req: Request) -> Result<Response, Error> {
         </style>
     </head>
     <body>
-        <pre>
-{PRIVACY}
-        </pre>
+        <pre>\n{PRIVACY}</pre>
     </body>
 </html>",
                     );

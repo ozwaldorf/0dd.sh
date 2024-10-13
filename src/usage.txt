@@ -96,4 +96,3 @@
      Copyright (c) 2024 Ossian Mapes, MIT license
 
 {footer}
-

@@ -64,9 +64,11 @@ fn main(req: Request) -> Result<Response, Error> {
         std::env::var("FASTLY_SERVICE_VERSION").unwrap_or_default()
     );
 
+    let nonce = rand::random::<usize>();
+
     let mut res = match req.get_method() {
         &Method::PUT => handle_put(req)?,
-        &Method::GET | &Method::HEAD => handle_get(req)?,
+        &Method::GET | &Method::HEAD => handle_get(req, nonce)?,
         _ => Response::from_status(403).with_body("invalid request"),
     };
 
@@ -96,10 +98,10 @@ fn main(req: Request) -> Result<Response, Error> {
         header::CONTENT_SECURITY_POLICY,
         [
             "default-src *",
+            "frame-ancestors 'none'",
             "style-src * 'unsafe-inline'",
             "object-src 'none'",
-            "script-src 'none'",
-            "frame-ancestors 'none'",
+            &format!("script-src 'nonce-{nonce}'"),
         ]
         .join(";"),
     );
@@ -212,7 +214,7 @@ fn track_upload(kv: &KVStore, id: &str, file: &str) -> Result<(), Error> {
 }
 
 /// Handle a request to get a paste
-fn handle_get(req: Request) -> Result<Response, Error> {
+fn handle_get(req: Request, nonce: usize) -> Result<Response, Error> {
     let url = req.get_url();
     let host = url.host().unwrap().to_string();
     let mut segments = url.path_segments().unwrap();
@@ -230,6 +232,7 @@ fn handle_get(req: Request) -> Result<Response, Error> {
                         body = htmlescape::encode_minimal(&String::from_utf8_lossy(
                             &usage.into_bytes()
                         )),
+                        nonce = nonce
                     );
 
                     return Ok(Response::new().with_body_text_html(&html));

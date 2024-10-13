@@ -16,6 +16,31 @@
                 margin: 0 auto;
             }}
         </style>
+        <script nonce="{nonce}">
+            document.addEventListener('paste', async (event) => {{
+                const preElement = document.querySelector('pre');
+                const responses = await Promise.all([...event.clipboardData.items]
+                    .filter(item => item.kind === 'file' || item.kind === 'string')
+                    .map(async item => {{
+                        const file = item.getAsFile();
+                        const uploadUrl = `/${{file.name}}`;
+                        try {{
+                            const response = await fetch(uploadUrl, {{
+                                method: 'PUT',
+                                body: file
+                            }});
+                            const responseBody = await response.text();
+                            return response.ok
+                                ? `<a href="${{responseBody}}" target="_blank">${{responseBody}}</a>`
+                                : `Failed to upload "${{file.name}}": ${{response.statusText}}`;
+                        }} catch (error) {{
+                            return `Error uploading "${{file.name}}": ${{error.message}}`;
+                        }}
+                    }})
+                );
+                preElement.innerHTML = responses.join('\n');
+            }});
+        </script>
     </head>
     <body>
         <pre>{body}</pre>

@@ -232,8 +232,20 @@ fn handle_get(req: Request) -> Result<Response, Error> {
     <head>
         <title>{host} - no bs pastebin</title>
         <meta name=\"description\" content=\"{host} - no bs command line pastebin\">
+        <link rel=\"stylesheet\" href=\"https://cdn.jsdelivr.net/npm/@xz/fonts@1/serve/ibm-plex-mono.min.css\">
+        <style>
+            body {{
+                color: #f4f4f4;
+                background: #0b0b0b;
+                font-family: 'IBM Plex Mono', monospace;
+            }}
+        </style>
     </head>
-    <body style=\"color: #f4f4f4; background: #0b0b0b\"><pre>{}</pre></body>
+    <body>
+        <pre>
+{}
+        </pre>
+    </body>
 </html>",
                         htmlescape::encode_minimal(&String::from_utf8_lossy(&usage.into_bytes()))
                             .as_str()
@@ -260,8 +272,20 @@ fn handle_get(req: Request) -> Result<Response, Error> {
     <head>
         <title>{host} - privacy policy</title>
         <meta name=\"description\" content=\"{host} privacy policy\">
+        <link rel=\"stylesheet\" href=\"https://cdn.jsdelivr.net/npm/@xz/fonts@1/serve/ibm-plex-mono.min.css\">
+        <style>
+            body {{
+                color: #f4f4f4;
+                background: #0b0b0b;
+                font-family: 'IBM Plex Mono', monospace;
+            }}
+        </style>
     </head>
-    <body style=\"color: #f4f4f4; background: #0b0b0b\"><pre>{PRIVACY}</pre></body>
+    <body>
+        <pre>
+{PRIVACY}
+        </pre>
+    </body>
 </html>",
                     );
 
@@ -316,7 +340,7 @@ fn handle_get(req: Request) -> Result<Response, Error> {
                     header::CACHE_CONTROL,
                     "public, s-maxage=31536000, immutable",
                 )
-                // Content type and disposition
+                // Content type and disposition (for "filename" on certain browsers)
                 .with_header(header::CONTENT_TYPE, meta.mime())
                 .with_header(
                     // Some browsers will set the title to this header

@@ -11,7 +11,6 @@ use humanize_bytes::humanize_bytes_binary;
 use humantime::format_duration;
 use pad::PadStr;
 use serde_json::json;
-use tinytemplate::TinyTemplate;
 use types::FileMetadata;
 
 mod config {
@@ -224,37 +223,16 @@ fn handle_get(req: Request) -> Result<Response, Error> {
 
             // For all other clients other than curl, wrap with html (ie, browsers)
             if let Some(agent) = req.get_header_str("user-agent") {
-                if !agent.starts_with("curl") {
-                    let wrapped = format!(
-                        "\
-<!DOCTYPE html>
-<html>
-    <head>
-        <title>{host} - no bs pastebin</title>
-        <meta name=\"description\" content=\"{host} - no bs command line pastebin\">
-        <link rel=\"stylesheet\" href=\"https://cdn.jsdelivr.net/npm/@xz/fonts@1/serve/ibm-plex-mono.min.css\">
-        <style>
-            body {{
-                color: #f4f4f4;
-                background: #0b0b0b;
-            }}
-            pre {{
-                font-family: 'IBM Plex Mono', monospace;
-                font-size: 1em;
-                max-width: 73ch;
-                margin: 0 auto;
-            }}
-        </style>
-    </head>
-    <body>
-        <pre>\n{}</pre>
-    </body>
-</html>",
-                        htmlescape::encode_minimal(&String::from_utf8_lossy(&usage.into_bytes()))
-                            .as_str()
+                if !(agent.starts_with("curl") || agent.starts_with("Wget")) {
+                    let html = format!(
+                        include_str!("templates/index.html"),
+                        host = host,
+                        body = htmlescape::encode_minimal(&String::from_utf8_lossy(
+                            &usage.into_bytes()
+                        )),
                     );
 
-                    return Ok(Response::new().with_body_text_html(&wrapped));
+                    return Ok(Response::new().with_body_text_html(&html));
                 }
             }
 
@@ -263,39 +241,17 @@ fn handle_get(req: Request) -> Result<Response, Error> {
 
         // Privacy policy page
         Some("privacy") => {
-            const PRIVACY: &str = include_str!("privacy.txt");
+            const PRIVACY: &str = include_str!("templates/privacy.txt");
 
             // For all other clients other than curl, wrap with html (ie, browsers)
             if let Some(agent) = req.get_header_str("user-agent") {
                 if !agent.starts_with("curl") {
-                    let wrapped = format!(
-                        "\
-<!DOCTYPE html>
-<html>
-    <head>
-        <title>{host} - privacy policy</title>
-        <meta name=\"description\" content=\"{host} privacy policy\">
-        <link rel=\"stylesheet\" href=\"https://cdn.jsdelivr.net/npm/@xz/fonts@1/serve/ibm-plex-mono.min.css\">
-        <style>
-            body {{
-                color: #f4f4f4;
-                background: #0b0b0b;
-            }}
-            pre {{
-                font-family: 'IBM Plex Mono', monospace;
-                font-size: 1em;
-                max-width: 73ch;
-                margin: 0 auto;
-            }}
-        </style>
-    </head>
-    <body>
-        <pre>\n{PRIVACY}</pre>
-    </body>
-</html>",
+                    let html = format!(
+                        include_str!("templates/privacy.html"),
+                        host = host,
+                        body = PRIVACY
                     );
-
-                    return Ok(Response::new().with_body_text_html(&wrapped));
+                    return Ok(Response::new().with_body_text_html(&html));
                 }
             }
 
@@ -366,7 +322,7 @@ fn handle_get(req: Request) -> Result<Response, Error> {
 
 /// Handle a request to the usage page
 fn get_usage(host: &str) -> Result<Body, Error> {
-    const USAGE_TEMPLATE: &str = include_str!("usage.txt");
+    const USAGE_TEMPLATE: &str = include_str!("templates/usage.txt");
 
     let body = cache::simple::get_or_set_with(host.to_string(), || {
         // Compute max line
@@ -393,25 +349,20 @@ fn get_usage(host: &str) -> Result<Body, Error> {
         let kv = KVStore::open(config::KV_STORE)?.expect("kv store to exist");
         let upload_counter = get_upload_count(&kv);
 
-        // Render template
-        let mut tt = TinyTemplate::new();
-        tt.add_template("usage", USAGE_TEMPLATE).unwrap();
-        let rendered = tt.render(
-            "usage",
-            &json!({
-                "header": header,
-                "host": host,
-                "max_size": *humanize_bytes_binary!(config::MAX_CONTENT_SIZE),
-                "kv_ttl": format_duration(config::KV_TTL).to_string(),
-                "cache_ttl": format_duration(config::CACHE_TTL).to_string(),
-                "upload_counter": upload_counter,
-                "footer": footer,
-            }),
-        )?;
+        let usage = format!(
+            include_str!("templates/usage.txt"),
+            header = header,
+            host = host,
+            max_size = humanize_bytes_binary!(config::MAX_CONTENT_SIZE),
+            kv_ttl = format_duration(config::KV_TTL).to_string(),
+            cache_ttl = format_duration(config::CACHE_TTL).to_string(),
+            upload_counter = upload_counter,
+            footer = footer,
+        );
 
         // Cache homepage for 5 minutes
         Ok(CacheEntry {
-            value: rendered.into(),
+            value: usage.into(),
             ttl: Duration::from_secs(5 * 60),
         })
     })?

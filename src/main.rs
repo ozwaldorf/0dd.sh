@@ -298,7 +298,7 @@ fn handle_get(req: Request) -> Result<Response, Error> {
             };
 
             let last = segments.last();
-            let filename = last.unwrap_or("no bs pastebin.txt");
+            let filename = last.unwrap_or("no bs pastebin");
 
             // Respond with content
             Ok(Response::from_body(content)

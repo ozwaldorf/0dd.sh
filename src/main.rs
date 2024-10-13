@@ -237,7 +237,12 @@ fn handle_get(req: Request) -> Result<Response, Error> {
             body {{
                 color: #f4f4f4;
                 background: #0b0b0b;
+            }}
+            pre {{
                 font-family: 'IBM Plex Mono', monospace;
+                font-size: 1em;
+                max-width: 73ch;
+                margin: 0 auto;
             }}
         </style>
     </head>
@@ -275,7 +280,12 @@ fn handle_get(req: Request) -> Result<Response, Error> {
             body {{
                 color: #f4f4f4;
                 background: #0b0b0b;
+            }}
+            pre {{
                 font-family: 'IBM Plex Mono', monospace;
+                font-size: 1em;
+                max-width: 73ch;
+                margin: 0 auto;
             }}
         </style>
     </head>

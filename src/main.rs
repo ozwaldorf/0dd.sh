@@ -249,7 +249,7 @@ fn handle_get(req: Request, nonce: usize) -> Result<Response, Error> {
 
         // Privacy policy page
         Some("privacy") => {
-            const PRIVACY: &str = include_str!("templates/privacy.txt");
+            const PRIVACY: &str = include_str!("static/privacy.txt");
 
             // For all other clients other than curl, wrap with html (ie, browsers)
             if let Some(agent) = req.get_header_str("user-agent") {

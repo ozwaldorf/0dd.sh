@@ -263,7 +263,7 @@ fn handle_get(req: Request, nonce: usize) -> Result<Response, Error> {
 
         // Favicon
         Some("favicon.ico") => {
-            const FAVICON: &[u8] = include_bytes!("icons8-paste-special.png");
+            const FAVICON: &[u8] = include_bytes!("static/icons8-paste-special.png");
             Ok(Response::from_body(FAVICON).with_content_type(mime::IMAGE_PNG))
         },
 

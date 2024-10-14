@@ -1,12 +1,11 @@
 use std::io::{BufRead, Write};
-use std::time::{Duration, SystemTime};
+use std::time::SystemTime;
 
 use base64::Engine;
-use fastly::cache::simple::CacheEntry;
 use fastly::handle::BodyHandle;
 use fastly::http::{Method, header};
 use fastly::kv_store::InsertMode;
-use fastly::{Body, Error, KVStore, Request, Response, cache, mime};
+use fastly::{Error, KVStore, Request, Response, cache, mime};
 use humanize_bytes::humanize_bytes_binary;
 use humantime::format_duration;
 use pad::PadStr;
@@ -44,6 +43,7 @@ mod types {
     }
 
     impl FileMetadata<'_> {
+        #[inline(always)]
         pub fn new(hash: [u8; 32], mime: String) -> Self {
             Self {
                 hash,
@@ -51,6 +51,7 @@ mod types {
             }
         }
 
+        #[inline(always)]
         pub fn mime(&self) -> &str {
             &self.mime
         }
@@ -110,6 +111,7 @@ fn main(req: Request) -> Result<Response, Error> {
 }
 
 /// Handle a request to put a paste into storage
+#[inline(always)]
 fn handle_put(mut req: Request) -> Result<Response, Error> {
     // Check request body
     if !req.has_body() {
@@ -181,6 +183,7 @@ fn handle_put(mut req: Request) -> Result<Response, Error> {
 }
 
 /// Get upload count from the metadata, or fallback to the number of metric lines.
+#[inline(always)]
 fn get_upload_count(kv: &KVStore) -> usize {
     kv.lookup(config::UPLOAD_METRICS_KEY)
         .ok()
@@ -195,6 +198,7 @@ fn get_upload_count(kv: &KVStore) -> usize {
 }
 
 /// Append the key and a timestamp to the metrics
+#[inline(always)]
 fn track_upload(kv: &KVStore, id: &str, file: &str) -> Result<(), Error> {
     let new_count = get_upload_count(kv) + 1;
     kv.build_insert()
@@ -214,6 +218,7 @@ fn track_upload(kv: &KVStore, id: &str, file: &str) -> Result<(), Error> {
 }
 
 /// Handle a request to get a paste
+#[inline(always)]
 fn handle_get(req: Request, nonce: usize) -> Result<Response, Error> {
     let url = req.get_url();
     let host = url.host().unwrap().to_string();
@@ -221,11 +226,10 @@ fn handle_get(req: Request, nonce: usize) -> Result<Response, Error> {
     match segments.next() {
         // Usage page
         Some("") => {
-            let usage = get_usage(&host)?;
-
             // For all other clients other than curl, wrap with html (ie, browsers)
             if let Some(agent) = req.get_header_str("user-agent") {
                 if !(agent.starts_with("curl") || agent.starts_with("Wget")) {
+                    let usage = get_usage(&host, true)?;
                     let html = format!(
                         include_str!("templates/index.html"),
                         host = host,
@@ -239,6 +243,7 @@ fn handle_get(req: Request, nonce: usize) -> Result<Response, Error> {
                 }
             }
 
+            let usage = get_usage(&host, false)?;
             Ok(Response::from_body(usage).with_content_type(mime::TEXT_PLAIN_UTF_8))
         },
 
@@ -324,56 +329,53 @@ fn handle_get(req: Request, nonce: usize) -> Result<Response, Error> {
 }
 
 /// Handle a request to the usage page
-fn get_usage(host: &str) -> Result<Body, Error> {
+#[inline(always)]
+fn get_usage(host: &str, is_browser: bool) -> Result<String, Error> {
     const USAGE_TEMPLATE: &str = include_str!("templates/usage.txt");
 
-    let body = cache::simple::get_or_set_with(host.to_string(), || {
-        // Compute max line
-        let max_line = USAGE_TEMPLATE.lines().map(|l| l.len()).max().unwrap() + 2;
+    // Compute max line
+    let max_line = USAGE_TEMPLATE.lines().map(|l| l.len()).max().unwrap() + 2;
 
-        // Build header
-        let page = host.to_uppercase() + "(1)";
-        let title = "User Commands"
-            .pad_to_width_with_alignment(max_line - 2 * page.len(), pad::Alignment::Middle);
-        let header = format!("{page}{title}{page}");
+    // Build header
+    let page = host.to_uppercase() + "(1)";
+    let title = "User Commands"
+        .pad_to_width_with_alignment(max_line - 2 * page.len(), pad::Alignment::Middle);
+    let header = format!("{page}{title}{page}");
 
-        // Build footer
-        let version = std::env!("CARGO_PKG_VERSION");
-        let mut footer = format!("{host} {version}");
-        let offset = footer.len() - page.len();
-        footer += &compile_time::date_str!().pad_to_width_with_alignment(
-            max_line - footer.len() - page.len() - offset,
-            pad::Alignment::Middle,
-        );
-        footer += &" ".repeat(offset);
-        footer += &page;
+    // Build footer
+    let version = std::env!("CARGO_PKG_VERSION");
+    let mut footer = format!("{host} {version}");
+    let offset = footer.len() - page.len();
+    footer += &compile_time::date_str!().pad_to_width_with_alignment(
+        max_line - footer.len() - page.len() - offset,
+        pad::Alignment::Middle,
+    );
+    footer += &" ".repeat(offset);
+    footer += &page;
 
-        // Get upload counter
-        let kv = KVStore::open(config::KV_STORE)?.expect("kv store to exist");
-        let upload_counter = get_upload_count(&kv);
+    // Get upload counter
+    let kv = KVStore::open(config::KV_STORE)?.expect("kv store to exist");
+    let upload_counter = get_upload_count(&kv);
 
-        let usage = format!(
-            include_str!("templates/usage.txt"),
-            header = header,
-            host = host,
-            max_size = humanize_bytes_binary!(config::MAX_CONTENT_SIZE),
-            kv_ttl = format_duration(config::KV_TTL).to_string(),
-            cache_ttl = format_duration(config::CACHE_TTL).to_string(),
-            upload_counter = upload_counter,
-            footer = footer,
-        );
-
-        // Cache homepage for 5 minutes
-        Ok(CacheEntry {
-            value: usage.into(),
-            ttl: Duration::from_secs(5 * 60),
-        })
-    })?
-    .expect("cache to have a body");
-    Ok(body)
+    Ok(format!(
+        include_str!("templates/usage.txt"),
+        header = header,
+        host = host,
+        extra_usage = if is_browser {
+            "     * Web browser    :  Press <Ctrl/Cmd + V>\n"
+        } else {
+            ""
+        },
+        max_size = humanize_bytes_binary!(config::MAX_CONTENT_SIZE),
+        kv_ttl = format_duration(config::KV_TTL).to_string(),
+        cache_ttl = format_duration(config::CACHE_TTL).to_string(),
+        upload_counter = upload_counter,
+        footer = footer,
+    ))
 }
 
 /// Get immutable content from the cache, or fallback to kv store and insert to cache.
+#[inline(always)]
 fn get_paste(id: &str) -> Result<(BodyHandle, FileMetadata), Error> {
     let key = "file_".to_string() + id;
 

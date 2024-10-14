@@ -4,7 +4,7 @@
      {host} - no bullshit command line pastebin
 
  SYNOPSIS
-     * View helptext  :  curl {host} -L | less
+{extra_usage}     * View helptext  :  curl {host} -L | less
      * Upload file    :  curl {host} -LT <file path>
      * Upload stdin   :  <command> | curl {host} -LT -
 

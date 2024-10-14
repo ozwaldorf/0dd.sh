@@ -7,7 +7,7 @@ on:
       - '.github/workflows/fastly.yaml'
       - 'fastly.toml'
       - 'Cargo.*'
-      - 'src/*'
+      - 'src/**/*'
 
 env:
   RUSTFLAGS: -Ctarget-feature=-reference-types

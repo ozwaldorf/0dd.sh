@@ -1,7 +1,7 @@
 # 0dd.sh
 
-[![Mozilla HTTP Observatory Grade](https://img.shields.io/mozilla-observatory/grade-score/0dd.sh?style=for-the-badge)](https://developer.mozilla.org/en-US/observatory/analyze?host=0dd.sh)
 [![fastly deploy](https://img.shields.io/github/actions/workflow/status/ozwaldorf/0dd.sh/fastly.yaml?style=for-the-badge&label=CI%2FCD)](https://github.com/ozwaldorf/0dd.sh/actions/workflows/fastly.yaml)
+[![Mozilla HTTP Observatory Grade](https://img.shields.io/mozilla-observatory/grade-score/0dd.sh?style=for-the-badge)](https://developer.mozilla.org/en-US/observatory/analyze?host=0dd.sh)
 [![uploads](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2F0dd.sh%2Fjson&query=%24.uploads&style=for-the-badge&label=uploads)](https://0dd.sh/json)
 
 no bullshit command line pastebin

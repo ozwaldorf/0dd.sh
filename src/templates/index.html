@@ -15,34 +15,47 @@
             body {{
                 color: #f4f4f4;
                 background: #0b0b0b;
-            }}
-            pre {{
                 font-family: 'IBM Plex Mono', monospace;
                 font-size: 1em;
+            }}
+            pre {{
                 max-width: 73ch;
                 margin: 0 auto;
             }}
         </style>
         <script nonce="{nonce}">
+            async function upload(data, name = "") {{
+                const uploadUrl = `/${{name}}`;
+                try {{
+                    const response = await fetch(uploadUrl, {{
+                        method: 'PUT',
+                        body: data
+                    }});
+                    const responseBody = await response.text();
+                    return response.ok
+                        ? `<a href="${{responseBody}}" target="_blank">${{responseBody}}</a>`
+                        : `Failed to upload "${{uploadUrl}}": ${{response.statusText}}`;
+                }} catch (error) {{
+                    return `Error uploading "${{uploadUrl}}": ${{error.message}}`;
+                }}
+            }}
             document.addEventListener('paste', async (event) => {{
                 const preElement = document.querySelector('pre');
+                preElement.innerHTML = "Uploading...";
+                // Handle text data
+                const text = event.clipboardData.getData("text");
+                if (text) {{
+                  preElement.innerHTML = await upload(text);
+                  return;
+                }}
+                // Or handle files
                 const responses = await Promise.all([...event.clipboardData.items]
-                    .filter(item => item.kind === 'file' || item.kind === 'string')
+                    .filter(item => item.kind === 'file')
                     .map(async item => {{
                         const file = item.getAsFile();
-                        const uploadUrl = `/${{file.name}}`;
-                        try {{
-                            const response = await fetch(uploadUrl, {{
-                                method: 'PUT',
-                                body: file
-                            }});
-                            const responseBody = await response.text();
-                            return response.ok
-                                ? `<a href="${{responseBody}}" target="_blank">${{responseBody}}</a>`
-                                : `Failed to upload "${{file.name}}": ${{response.statusText}}`;
-                        }} catch (error) {{
-                            return `Error uploading "${{file.name}}": ${{error.message}}`;
-                        }}
+                        if (!file)
+                            return `Error reading from clipboard`;
+                        return await upload(file, file.name)
                     }})
                 );
                 preElement.innerHTML = responses.join('\n');

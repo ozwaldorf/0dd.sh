@@ -22,8 +22,10 @@
                 max-width: 73ch;
                 margin: 0 auto;
             }}
+            a {{ color: #78a9ff; }}
         </style>
         <script nonce="{nonce}">
+            // Upload a file and return the url
             async function upload(data, name = "") {{
                 const uploadUrl = `/${{name}}`;
                 try {{
@@ -39,16 +41,16 @@
                     return `Error uploading "${{uploadUrl}}": ${{error.message}}`;
                 }}
             }}
+
+            // Listen for ctrl/cmd + V
             document.addEventListener('paste', async (event) => {{
                 const preElement = document.querySelector('pre');
                 preElement.innerHTML = "Uploading...";
-                // Handle text data
                 const text = event.clipboardData.getData("text");
                 if (text) {{
                   preElement.innerHTML = await upload(text);
                   return;
                 }}
-                // Or handle files
                 const responses = await Promise.all([...event.clipboardData.items]
                     .filter(item => item.kind === 'file')
                     .map(async item => {{
@@ -60,6 +62,13 @@
                 );
                 preElement.innerHTML = responses.join('\n');
             }});
+
+
+            // Replace urls with links on page load
+            document.addEventListener('DOMContentLoaded', () => {{
+                const preElement = document.querySelector('pre');
+                preElement.innerHTML = preElement.innerHTML.replace(/((https:)[^\s]+[\w])/g, '<a href="$1" target="_blank">$1</a>');
+            }}, false);
         </script>
     </head>
     <body>

@@ -100,8 +100,10 @@ fn main(req: Request) -> Result<Response, Error> {
         [
             "default-src *",
             "frame-ancestors 'none'",
-            "style-src * 'unsafe-inline'",
             "object-src 'none'",
+            "base-uri 'none'",
+            "form-action 'none'",
+            "style-src * 'unsafe-inline'",
             &format!("script-src 'nonce-{nonce}'"),
         ]
         .join(";"),

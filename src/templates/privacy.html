@@ -1,23 +1,16 @@
 <!DOCTYPE html>
-<html>
-    <head>
-        <title>{host} - privacy policy</title>
-        <meta name="description" content="{host} privacy policy">
-        <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xz/fonts@1/serve/ibm-plex-mono.min.css">
-        <style>
-            body {{
-                color: #f4f4f4;
-                background: #0b0b0b;
-            }}
-            pre {{
-                font-family: 'IBM Plex Mono', monospace;
-                font-size: 1em;
-                max-width: 73ch;
-                margin: 0 auto;
-            }}
-        </style>
-    </head>
-    <body>
-        <pre>{body}</pre>
-    </body>
-</html>
+<head>
+    <title>{host} - privacy policy</title>
+    <meta name="description" content="{host} privacy policy">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xz/fonts@1/serve/ibm-plex-mono.min.css">
+    <style>
+        @font-face {{
+            font-family: 'IBM Plex Mono'; font-weight: normal; font-style: normal; font-display: swap;
+            src: url('https://cdn.jsdelivr.net/npm/@xz/fonts@1/serve/src/ibm-plex-mono/IBMPlexMono.woff2') format('woff2'),
+                 url('https://cdn.jsdelivr.net/npm/@xz/fonts@1/serve/src/ibm-plex-mono/IBMPlexMono.woff') format('woff'); }}
+        body {{ font-family: 'IBM Plex Mono', monospace; font-size: 1em; color: #f4f4f4; background: #0b0b0b; }}
+        pre {{ max-width: 73ch; margin: 0 auto; }}
+        a {{ color: #78a9ff; }}
+    </style>
+</head>
+<body><pre>{body}</pre></body>

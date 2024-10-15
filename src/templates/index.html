@@ -51,7 +51,7 @@
         // Replace urls with links on page load
         document.addEventListener('DOMContentLoaded', () => {{
             const preElement = document.querySelector('pre');
-            preElement.innerHTML = preElement.innerHTML.replace(/((https:)[^\s]+[\w])/g, '<a href="$1" target="_blank">$1</a>');
+            preElement.innerHTML = preElement.innerHTML.replace(/:  ((https:)[^\s]+[\w])/g, ':  <a href="$1" target="_blank">$1</a>');
         }}, false);
     </script>
 </head>

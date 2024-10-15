@@ -246,7 +246,7 @@ fn handle_get(req: Request, nonce: usize) -> Result<Response, Error> {
             }
 
             let usage = get_usage(&host, false)?;
-            Ok(Response::from_body(usage).with_content_type(mime::TEXT_PLAIN_UTF_8))
+            Ok(Response::new().with_body_text_plain(&usage))
         },
 
         // Privacy policy page
@@ -265,7 +265,13 @@ fn handle_get(req: Request, nonce: usize) -> Result<Response, Error> {
                 }
             }
 
-            Ok(Response::from_body(PRIVACY).with_content_type(mime::TEXT_PLAIN_UTF_8))
+            Ok(Response::new().with_body_text_plain(PRIVACY))
+        },
+
+        // Robots
+        Some("robots.txt") => {
+            const ROBOTS: &str = include_str!("static/robots.txt");
+            Ok(Response::new().with_body_text_plain(ROBOTS))
         },
 
         // Favicon

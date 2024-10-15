@@ -33,19 +33,19 @@
  EXAMPLES
      * Upload from stdin:
          $ echo 'testing' | curl {host} -LT -
-           https://{host}/Ag1BhjbD
-         $ curl https://{host}/Ag1BhjbD
+           https://{host}/p/Ag1BhjbD
+         $ curl https://{host}/p/Ag1BhjbD
            testing
 
      * Sending and applying a git patch:
          $ git diff | curl {host} -LT -
-           https://{host}/deadbeef
-         $ git apply <(curl https://{host}/deadbeef)
+           https://{host}/p/deadbeef
+         $ git apply <(curl https://{host}/p/deadbeef)
 
      * Password encryption (using gpg):
          $ echo 'testing' | gpg -o- -c | curl {host} -LT -
-           https://{host}/exmpLhsh
-         $ curl https://{host}/exmpLhsh | gpg -d
+           https://{host}/p/exmpLhsh
+         $ curl https://{host}/p/exmpLhsh | gpg -d
            gpg: AES256.CFB encrypted data
            gpg: encrypted with 1 passphrase
            testing
@@ -55,10 +55,10 @@
          $ b3sum file --raw | bs58
            Ag1BhjbDQMUjq2rEQVgTNMPFEm8gTUmaJTRw4LUx1u78
          $ curl {host} -LT file
-           https://{host}/Ag1BhjbD
+           https://{host}/p/Ag1BhjbD
 
      * Verified download (using b3sum + bs58-cli):
-         $ curl https://{host}/Ag1BhjbD | tee file | b3sum --raw | bs58
+         $ curl https://{host}/p/Ag1BhjbD | tee file | b3sum --raw | bs58
            Ag1BhjbDQMUjq2rEQVgTNMPFEm8gTUmaJTRw4LUx1u78
          $ cat ./file
            testing

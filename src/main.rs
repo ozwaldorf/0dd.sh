@@ -168,11 +168,11 @@ fn handle_put(mut req: Request) -> Result<Response, Error> {
     println!("put {key} in storage");
 
     let url = format!(
-        "https://{host}/{id}{}",
+        "https://{host}/p/{id}{}",
         filename.map(|v| "/".to_string() + v).unwrap_or_default()
     );
     let origin_url = format!(
-        "https://{host}/{id}#integrity=blake3-{}",
+        "https://{host}/p/{id}#integrity=blake3-{}",
         base64::engine::general_purpose::STANDARD.encode(hash.as_bytes())
     );
 
@@ -286,9 +286,14 @@ fn handle_get(req: Request, nonce: usize) -> Result<Response, Error> {
         },
 
         // Paste download
-        Some(id) if id.len() == config::ID_SIZE => {
+        Some("p") => {
+            let Some(id) = segments.next() else {
+                return Ok(Response::from_status(404).with_body_text_plain("expected paste id"));
+            };
             let Ok((content, meta)) = get_paste(id) else {
-                return Ok(Response::from_status(404).with_body(format!("{id} not found")));
+                return Ok(
+                    Response::from_status(404).with_body_text_plain(&format!("{id} not found"))
+                );
             };
 
             let last = segments.last();
@@ -300,7 +305,7 @@ fn handle_get(req: Request, nonce: usize) -> Result<Response, Error> {
                 .with_header(
                     "x-sri-url",
                     format!(
-                        "https://{host}/{id}#integrity=blake3-{}",
+                        "https://{host}/p/{id}#integrity=blake3-{}",
                         base64::engine::general_purpose::STANDARD.encode(meta.hash)
                     ),
                 )

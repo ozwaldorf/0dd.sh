@@ -24,9 +24,9 @@ mod config {
     /// Fastly key-value storage name
     pub const KV_STORE: &str = "paste storage";
     /// TTL for content
-    pub const KV_TTL: Duration = Duration::from_secs(7 * 86400);
+    pub const KV_TTL: Duration = Duration::from_secs(14 * 86400);
     /// Request cache ttl
-    pub const CACHE_TTL: Duration = Duration::from_secs(30 * 86400);
+    pub const CACHE_TTL: Duration = Duration::from_secs(90 * 86400);
     /// Key to store upload metrics under
     pub const UPLOAD_METRICS_KEY: &str = "_upload_metrics";
 }

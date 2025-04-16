@@ -19,7 +19,7 @@ jobs:
     - uses: actions/checkout@v4
     - uses: dtolnay/rust-toolchain@1.81
       with:
-        targets: wasm32-wasi
+        targets: wasm32-wasip1
     - uses: Swatinem/rust-cache@v2
     - uses: fastly/compute-actions@v11
       env:

@@ -93,6 +93,6 @@
      * Favicon by       :  https://icons8.com
      * Donations - ETH  :  0x45b2c262fae9c449f9067d65dcc82ba18d087241
 
-     Copyright (c) 2024 Ossian Mapes, MIT license
+     Copyright (c) 2025 Ossian Mapes, MIT license
 
 {footer}

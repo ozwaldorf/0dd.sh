@@ -1,4 +1,5 @@
-use std::io::{BufRead, Write};
+use std::borrow::Cow;
+use std::io::{BufRead, Read, Write};
 use std::time::SystemTime;
 
 use base64::Engine;
@@ -132,7 +133,7 @@ fn handle_put(mut req: Request) -> Result<Response, Error> {
     let filename = url
         .path_segments()
         .unwrap()
-        .last()
+        .next_back()
         .and_then(|v| (!v.is_empty()).then_some(v));
 
     // Hash content and use a section of base58 encoding for the id
@@ -298,25 +299,23 @@ fn handle_get(req: Request, nonce: usize) -> Result<Response, Error> {
             let Some(id) = segments.next() else {
                 return Ok(Response::from_status(404).with_body_text_plain("expected paste id"));
             };
-            let Ok((content, meta)) = get_paste(id) else {
+            let is_markdown = req.get_query_str() == Some("md");
+            let Ok((content, meta)) = get_paste(id, is_markdown) else {
                 return Ok(
                     Response::from_status(404).with_body_text_plain(&format!("{id} not found"))
                 );
             };
 
-            let last = segments.last();
-            let filename = last.unwrap_or("no bs pastebin");
+            let last = segments.next_back();
+            let filename = last.unwrap_or({
+                if !is_markdown {
+                    "no bs pastebin"
+                } else {
+                    "no bs markdown"
+                }
+            });
 
-            // Respond with content
-            Ok(Response::from_body(content)
-                // Fleek network SRI origin url
-                .with_header(
-                    "x-sri-url",
-                    format!(
-                        "https://{host}/p/{id}#integrity=blake3-{}",
-                        base64::engine::general_purpose::STANDARD.encode(meta.hash)
-                    ),
-                )
+            let mut response = Response::from_body(content)
                 // Immutable client caching
                 .with_header(
                     // Client-side cache control, content will never change
@@ -325,14 +324,25 @@ fn handle_get(req: Request, nonce: usize) -> Result<Response, Error> {
                 )
                 // Content type and disposition (for "filename" on certain browsers)
                 .with_header(header::CONTENT_TYPE, meta.mime())
+                // Some browsers will set the title to this header
                 .with_header(
-                    // Some browsers will set the title to this header
                     header::CONTENT_DISPOSITION,
                     format!(
                         r#"inline; filename="{filename}"; filename*=UTF-8''{}"#,
                         urlencoding::encode(filename)
                     ),
-                ))
+                );
+            if !is_markdown {
+                // Fleek network SRI origin url
+                response = response.with_header(
+                    "x-sri-url",
+                    format!(
+                        "https://{host}/p/{id}#integrity=blake3-{}",
+                        base64::engine::general_purpose::STANDARD.encode(meta.hash)
+                    ),
+                );
+            }
+            Ok(response)
         },
 
         // Unknown path
@@ -389,19 +399,28 @@ fn get_usage(host: &str, is_browser: bool) -> Result<String, Error> {
 
 /// Get immutable content from the cache, or fallback to kv store and insert to cache.
 #[inline(always)]
-fn get_paste(id: &str) -> Result<(BodyHandle, FileMetadata), Error> {
+fn get_paste(id: &str, is_markdown: bool) -> Result<(BodyHandle, FileMetadata), Error> {
     let key = "file_".to_string() + id;
 
     // Try to find content in cache
+    let string;
+    let mut meta;
     if let Some(found) = cache::core::lookup(key.clone().into()).execute()? {
-        let meta = serde_json::from_slice(&found.user_metadata()).expect("corrupted metadata");
-        Ok((found.to_stream()?.into_handle(), meta))
+        meta = serde_json::from_slice(&found.user_metadata()).expect("corrupted metadata");
+
+        if !is_markdown {
+            return Ok((found.to_stream()?.into_handle(), meta));
+        }
+
+        let mut buf = String::new();
+        found.to_stream()?.read_to_string(&mut buf)?;
+        string = buf;
     } else {
         // Otherwise, get content from key value store (origin)
         let kv = KVStore::open(config::KV_STORE)?.expect("kv store to exist");
         let mut res = kv.lookup(&key)?;
         let meta_bytes = res.metadata().unwrap();
-        let meta = serde_json::from_slice(&meta_bytes).expect("corrupted metadata");
+        meta = serde_json::from_slice(&meta_bytes).expect("corrupted metadata");
         let content = res.take_body_bytes();
 
         // Write content & metadata to cache
@@ -412,6 +431,15 @@ fn get_paste(id: &str) -> Result<(BodyHandle, FileMetadata), Error> {
         w.write_all(&content)?;
         w.finish()?;
 
-        Ok((content.into(), meta))
+        if !is_markdown {
+            return Ok((content.into(), meta));
+        }
+
+        string = String::from_utf8_lossy(&content).to_string();
     }
+
+    // render markdown
+    meta.mime = Cow::from("text/html");
+    let markdown = markdown::to_html(&string).into();
+    Ok((markdown, meta))
 }

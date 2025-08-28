@@ -300,11 +300,6 @@ fn handle_get(req: Request, nonce: usize) -> Result<Response, Error> {
                 return Ok(Response::from_status(404).with_body_text_plain("expected paste id"));
             };
             let is_markdown = req.get_query_str() == Some("md");
-            let Ok((content, meta)) = get_paste(id, is_markdown) else {
-                return Ok(
-                    Response::from_status(404).with_body_text_plain(&format!("{id} not found"))
-                );
-            };
 
             let last = segments.next_back();
             let filename = last.unwrap_or({
@@ -315,7 +310,13 @@ fn handle_get(req: Request, nonce: usize) -> Result<Response, Error> {
                 }
             });
 
-            let mut response = Response::from_body(content)
+            let Ok((content, meta)) = get_paste(id, is_markdown, &host, filename) else {
+                return Ok(
+                    Response::from_status(404).with_body_text_plain(&format!("{id} not found"))
+                );
+            };
+
+            Ok(Response::from_body(content)
                 // Immutable client caching
                 .with_header(
                     // Client-side cache control, content will never change
@@ -331,18 +332,7 @@ fn handle_get(req: Request, nonce: usize) -> Result<Response, Error> {
                         r#"inline; filename="{filename}"; filename*=UTF-8''{}"#,
                         urlencoding::encode(filename)
                     ),
-                );
-            if !is_markdown {
-                // Fleek network SRI origin url
-                response = response.with_header(
-                    "x-sri-url",
-                    format!(
-                        "https://{host}/p/{id}#integrity=blake3-{}",
-                        base64::engine::general_purpose::STANDARD.encode(meta.hash)
-                    ),
-                );
-            }
-            Ok(response)
+                ))
         },
 
         // Unknown path
@@ -399,7 +389,12 @@ fn get_usage(host: &str, is_browser: bool) -> Result<String, Error> {
 
 /// Get immutable content from the cache, or fallback to kv store and insert to cache.
 #[inline(always)]
-fn get_paste(id: &str, is_markdown: bool) -> Result<(BodyHandle, FileMetadata), Error> {
+fn get_paste(
+    id: &str,
+    is_markdown: bool,
+    host: &str,
+    filename: &str,
+) -> Result<(BodyHandle, FileMetadata<'static>), Error> {
     let key = "file_".to_string() + id;
 
     // Try to find content in cache
@@ -440,6 +435,13 @@ fn get_paste(id: &str, is_markdown: bool) -> Result<(BodyHandle, FileMetadata), 
 
     // render markdown
     meta.mime = Cow::from("text/html");
-    let markdown = markdown::to_html(&string).into();
-    Ok((markdown, meta))
+    let content = markdown::to_html_with_options(&string, &markdown::Options::gfm())
+        .unwrap_or_else(|e| format!("Failed to parse github flavored markdown: {e}"));
+    let html = format!(
+        include_str!("templates/markdown.html"),
+        filename = filename,
+        host = host,
+        content = content
+    );
+    Ok((html.into(), meta))
 }

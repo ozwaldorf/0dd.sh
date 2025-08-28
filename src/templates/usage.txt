@@ -24,6 +24,9 @@
      the content will remain available in regions that have it cached
      still. Content can always be re-uploaded to the same paste URL.
 
+     Appending the query param ?md to paste urls will render github
+     flavored markdown into html.
+
  NOTES
      * Maximum file size   :  {max_size}
      * Storage TTL         :  {kv_ttl}

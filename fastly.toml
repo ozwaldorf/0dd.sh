@@ -4,3 +4,7 @@ description = "No bullshit command line pastebin"
 authors = ["self@ossian.dev"]
 language = "rust"
 service_id = "kR8qHyvG08fIVCWBqvJ8D3"
+
+[local_server.kv_stores."paste storage"]
+  file = "empty.json"
+  format = "json"

@@ -2,3 +2,4 @@
 **/*.rs.bk
 /bin
 /pkg
+kv_data.json

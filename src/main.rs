@@ -27,7 +27,9 @@ mod config {
     /// TTL for content
     pub const KV_TTL: Duration = Duration::from_secs(14 * 86400);
     /// Request cache ttl
-    pub const CACHE_TTL: Duration = Duration::from_secs(90 * 86400);
+    /// 30.44 days in seconds, same as humantime's month unit
+    const MONTH: u64 = 2_630_016;
+    pub const CACHE_TTL: Duration = Duration::from_secs(3 * MONTH);
     /// Key to store upload metrics under
     pub const UPLOAD_METRICS_KEY: &str = "_upload_metrics";
 }
@@ -129,7 +131,7 @@ fn handle_put(mut req: Request) -> Result<Response, Error> {
     }
 
     let url = req.get_url();
-    let host = url.host().unwrap().to_string();
+    let origin = url.origin().ascii_serialization();
     let filename = url
         .path_segments()
         .unwrap()
@@ -171,11 +173,11 @@ fn handle_put(mut req: Request) -> Result<Response, Error> {
     println!("put {key} in storage");
 
     let url = format!(
-        "https://{host}/p/{id}{}",
+        "{origin}/p/{id}{}",
         filename.map(|v| "/".to_string() + v).unwrap_or_default()
     );
     let origin_url = format!(
-        "https://{host}/p/{id}#integrity=blake3-{}",
+        "{origin}/p/{id}#integrity=blake3-{}",
         base64::engine::general_purpose::STANDARD.encode(hash.as_bytes())
     );
 
@@ -233,12 +235,17 @@ fn handle_get(req: Request, nonce: usize) -> Result<Response, Error> {
             if let Some(agent) = req.get_header_str("user-agent") {
                 if !(agent.starts_with("curl") || agent.starts_with("Wget")) {
                     let usage = get_usage(&host, true)?;
+                    let body = htmlescape::encode_minimal(&String::from_utf8_lossy(
+                        &usage.into_bytes(),
+                    ))
+                    .replace(
+                        "Select a file",
+                        r#"<span id="file-pick">Select a file</span>"#,
+                    );
                     let html = format!(
                         include_str!("templates/index.html"),
                         host = host,
-                        body = htmlescape::encode_minimal(&String::from_utf8_lossy(
-                            &usage.into_bytes()
-                        )),
+                        body = body,
                         nonce = nonce
                     );
 
@@ -375,7 +382,7 @@ fn get_usage(host: &str, is_browser: bool) -> Result<String, Error> {
         header = header,
         host = host,
         extra_usage = if is_browser {
-            "     * Web browser    :  Press <Ctrl/Cmd + V>\n"
+            "     * Web browser    :  Press <Ctrl/Cmd + V> or Select a file\n"
         } else {
             ""
         },

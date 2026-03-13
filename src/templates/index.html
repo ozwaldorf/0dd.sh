@@ -10,6 +10,8 @@
         body {{ font-family: 'IBM Plex Mono', monospace; font-size: 1em; color: #f4f4f4; background: #0b0b0b; }}
         pre {{ max-width: 73ch; margin: 0 auto; }}
         a {{ color: #78a9ff; }}
+        #file-input {{ display: none; }}
+        #file-pick {{ color: #78a9ff; cursor: pointer; text-decoration: underline; }}
     </style>
     <script nonce="{nonce}">
         // Upload a file and return the url
@@ -48,11 +50,29 @@
             );
             preElement.innerHTML = responses.join('\n');
         }});
-        // Replace urls with links on page load
+        // File input upload
         document.addEventListener('DOMContentLoaded', () => {{
             const preElement = document.querySelector('pre');
+            // Replace urls with links
             preElement.innerHTML = preElement.innerHTML.replace(/:  ((https:)[^\s]+[\w])/g, ':  <a href="$1" target="_blank">$1</a>');
+            // Wire up file picker
+            const fileInput = document.getElementById('file-input');
+            const filePick = document.getElementById('file-pick');
+            if (filePick) filePick.addEventListener('click', () => fileInput.click());
+            fileInput.addEventListener('change', async () => {{
+                const files = fileInput.files;
+                if (!files.length) return;
+                preElement.innerHTML = "Uploading...";
+                const responses = await Promise.all(
+                    [...files].map(file => upload(file, file.name))
+                );
+                preElement.innerHTML = responses.join('\n');
+                fileInput.value = '';
+            }});
         }}, false);
     </script>
 </head>
-<body><pre>{body}</pre></body>
+<body>
+    <pre>{body}</pre>
+    <input type="file" id="file-input" multiple>
+</body>

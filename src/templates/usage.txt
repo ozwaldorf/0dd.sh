@@ -89,10 +89,14 @@
          Moved to an ipfs based storage approach, added an interactive
          HTML frontend.
 
-     * v3.0.0 | Oct 2024 | 0dd.sh, upld.is
+     * v3.0.0 | Oct 2024 | 0dd.sh
          We're back :) Tamper-proof edge service, rewritten from
          scratch in rust. Shorter urls, while still keeping everything
          verifiable using blake3. Removed legacy POST upload method.
+
+     * v3.1.0 | Oct 2026 | 0dd.sh
+         Chunked uploads up to 48 MiB, size-based storage expiry,
+         and 30-day edge caching.
 
  SEE ALSO
      curl(1), gpg(1), b3sum, bs58-cli

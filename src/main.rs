@@ -280,12 +280,20 @@ fn ttl_graph() -> String {
         ((kv_ttl(mib << 20).as_secs_f64() - min) / (max - min) * (ROWS - 1) as f64).round() as u64
     };
 
+    // Label the min and max, and every 10 days on the nearest row
+    let (min_days, max_days) = (min as u64 / 86400, max as u64 / 86400);
+    let labels: Vec<u64> = [min_days, max_days]
+        .into_iter()
+        .chain((10..max_days).step_by(10))
+        .collect();
+    let label_row =
+        |days: u64| ((days as f64 * 86400.0 - min) / (max - min) * (ROWS - 1) as f64).round() as u64;
+
     let mut graph = String::from("     days\n");
     for row in (0..ROWS).rev() {
-        let mut line = match row {
-            0 => format!("     {:>3} |", config::MIN_KV_TTL.as_secs() / 86400),
-            r if r == ROWS - 1 => format!("     {:>3} |", config::MAX_KV_TTL.as_secs() / 86400),
-            _ => "         |".to_string(),
+        let mut line = match labels.iter().find(|&&days| label_row(days) == row) {
+            Some(days) => format!("     {days:>3} |"),
+            None => "         |".to_string(),
         };
         for mib in 0..=max_mib {
             // Fill down towards the next column so steep drops stay connected

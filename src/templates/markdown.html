@@ -5,6 +5,10 @@
     <meta name="description" content="Markdown document from {{host}}">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <style>
+        @font-face {{ font-family: 'Berkeley Mono'; font-weight: 400; font-style: normal; font-display: swap; src: url('/fonts/BerkeleyMono-Regular.woff2') format('woff2'); }}
+        @font-face {{ font-family: 'Berkeley Mono'; font-weight: 700; font-style: normal; font-display: swap; src: url('/fonts/BerkeleyMono-Bold.woff2') format('woff2'); }}
+        @font-face {{ font-family: 'Berkeley Mono'; font-weight: 400; font-style: italic; font-display: swap; src: url('/fonts/BerkeleyMono-Italic.woff2') format('woff2'); }}
+        @font-face {{ font-family: 'Berkeley Mono'; font-weight: 700; font-style: italic; font-display: swap; src: url('/fonts/BerkeleyMono-BoldItalic.woff2') format('woff2'); }}
         @font-face {{
             font-family: 'IBM Plex Mono'; font-weight: normal; font-style: normal; font-display: swap;
             src: url('https://cdn.jsdelivr.net/npm/@xz/fonts@1/serve/src/ibm-plex-mono/IBMPlexMono.woff2') format('woff2'),
@@ -49,7 +53,7 @@
 
         /* Code */
         code {{
-            font-family: 'IBM Plex Mono', 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+            font-family: 'Berkeley Mono', 'IBM Plex Mono', 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
             font-size: 0.85em;
             background-color: #161b22;
             color: #e6edf3;
@@ -58,7 +62,7 @@
         }}
 
         pre {{
-            font-family: 'IBM Plex Mono', 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+            font-family: 'Berkeley Mono', 'IBM Plex Mono', 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
             background-color: #0d1117;
             color: #e6edf3;
             border: 1px solid #30363d;

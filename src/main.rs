@@ -39,6 +39,13 @@ mod config {
     pub const CACHE_TTL: Duration = Duration::from_secs(30 * 86400);
     /// Key to store upload metrics under
     pub const UPLOAD_METRICS_KEY: &str = "_upload_metrics";
+    /// Web fonts served from the kv store under `_font_{name}`, kept out of the source tree
+    pub const FONTS: [&str; 4] = [
+        "BerkeleyMono-Regular.woff2",
+        "BerkeleyMono-Bold.woff2",
+        "BerkeleyMono-Italic.woff2",
+        "BerkeleyMono-BoldItalic.woff2",
+    ];
 }
 
 mod types {
@@ -469,6 +476,21 @@ fn handle_get(req: Request, nonce: usize) -> Result<Response, Error> {
             Ok(Response::from_body(FAVICON).with_content_type(mime::IMAGE_PNG))
         },
 
+        // Web fonts, pages fall back to other fonts when missing
+        Some("fonts") => {
+            let name = segments.next().unwrap_or_default();
+            let font = config::FONTS
+                .contains(&name)
+                .then(|| get_font(name).ok())
+                .flatten();
+            let Some(body) = font else {
+                return Ok(Response::from_status(404).with_body_text_plain(&format!("{name} not found")));
+            };
+            Ok(Response::from_body(body)
+                .with_content_type(mime::FONT_WOFF2)
+                .with_header(header::CACHE_CONTROL, "public, max-age=31536000, immutable"))
+        },
+
         // JSON information page
         Some("json") => {
             let kv = KVStore::open(config::KV_STORE)?.unwrap();
@@ -622,6 +644,23 @@ fn get_paste(
         content = content
     );
     Ok((html.into(), meta))
+}
+
+/// Get a web font from the cache, or fallback to kv store and insert to cache.
+#[inline(always)]
+fn get_font(name: &str) -> Result<Body, Error> {
+    let key = format!("_font_{name}");
+    if let Some(found) = cache::core::lookup(key.clone().into()).execute()? {
+        return Ok(found.to_stream()?);
+    }
+    let kv = KVStore::open(config::KV_STORE)?.expect("kv store to exist");
+    let font = kv.lookup(&key)?.take_body_bytes();
+    let mut w = cache::core::insert(key.into(), config::CACHE_TTL)
+        .surrogate_keys(["fonts"])
+        .execute()?;
+    w.write_all(&font)?;
+    w.finish()?;
+    Ok(font.into())
 }
 
 /// Load content from the kv store, joining any chunks, and insert it into the cache.

@@ -6,7 +6,7 @@ use base64::Engine;
 use fastly::handle::BodyHandle;
 use fastly::http::{Method, header};
 use fastly::kv_store::InsertMode;
-use fastly::{Error, KVStore, Request, Response, cache, mime};
+use fastly::{Body, Error, KVStore, Request, Response, cache, mime};
 use humanize_bytes::humanize_bytes_binary;
 use humantime::format_duration;
 use pad::PadStr;
@@ -21,11 +21,19 @@ mod config {
     /// Minimum content size in bytes
     pub const MIN_CONTENT_SIZE: usize = 32;
     /// Maximum content size in bytes
-    pub const MAX_CONTENT_SIZE: usize = 24 << 20;
+    pub const MAX_CONTENT_SIZE: usize = 96 << 20;
+    /// Content larger than this is split into chunks, must fit in a single kv value
+    pub const CHUNK_SIZE: usize = 16 << 20;
+    /// Maximum content size to render as markdown
+    pub const MAX_MARKDOWN_SIZE: usize = CHUNK_SIZE;
+    /// Maximum object size for the fastly cache
+    pub const MAX_CACHE_SIZE: usize = 100_000_000;
     /// Fastly key-value storage name
     pub const KV_STORE: &str = "paste storage";
     /// TTL for content
     pub const KV_TTL: Duration = Duration::from_secs(14 * 86400);
+    /// TTL for chunks, outliving the manifest that references them
+    pub const CHUNK_TTL: Duration = Duration::from_secs(15 * 86400);
     /// Request cache ttl
     /// 30.44 days in seconds, same as humantime's month unit
     const MONTH: u64 = 2_630_016;
@@ -43,6 +51,12 @@ mod types {
     pub struct FileMetadata<'a> {
         pub hash: [u8; 32],
         pub mime: Cow<'a, str>,
+        /// Number of chunks, if the value is a newline separated list of chunk keys
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub chunks: Option<usize>,
+        /// Total content size, set for chunked content
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub size: Option<usize>,
     }
 
     impl FileMetadata<'_> {
@@ -51,6 +65,8 @@ mod types {
             Self {
                 hash,
                 mime: Cow::Owned(mime),
+                chunks: None,
+                size: None,
             }
         }
 
@@ -128,16 +144,55 @@ fn handle_put(mut req: Request) -> Result<Response, Error> {
         return Ok(Response::from_status(413).with_body_text_plain("content too large"));
     }
 
-    // Preallocate to avoid doubling reallocations, and cap reads for uploads without a length
-    let mut body = Vec::with_capacity(content_length.unwrap_or_default());
-    req.take_body()
-        .take(config::MAX_CONTENT_SIZE as u64 + 1)
-        .read_to_end(&mut body)?;
-    if body.len() < config::MIN_CONTENT_SIZE && body != b"testing\n" {
-        return Ok(Response::from_status(400).with_body_text_plain("content too small"));
+    // Stream the body in chunks, hashing as we go. Content that fits in a single chunk is kept
+    // in memory and stored inline, otherwise each chunk is written to storage under a random
+    // upload nonce, and a manifest referencing them is stored under the content id.
+    let kv = KVStore::open(config::KV_STORE)?.expect("kv store to exist");
+    let mut reader = req
+        .take_body()
+        .take(config::MAX_CONTENT_SIZE as u64 + 1);
+    let mut buf = Vec::with_capacity(content_length.unwrap_or_default().min(config::CHUNK_SIZE));
+    let mut hasher = blake3::Hasher::new();
+    let mut utf8 = Utf8Validator::default();
+    let mut magic = None;
+    let mut size = 0;
+    let mut chunk_keys = Vec::new();
+    let nonce = rand::random::<u64>();
+    loop {
+        buf.clear();
+        (&mut reader)
+            .take(config::CHUNK_SIZE as u64)
+            .read_to_end(&mut buf)?;
+        let eof = buf.len() < config::CHUNK_SIZE || reader.fill_buf()?.is_empty();
+
+        if chunk_keys.is_empty() {
+            // try and detect mime type from magic byte sequences
+            magic = infer::get(&buf);
+        }
+        hasher.update(&buf);
+        utf8.update(&buf);
+        size += buf.len();
+
+        if chunk_keys.is_empty() && eof {
+            break;
+        }
+        if size > config::MAX_CONTENT_SIZE {
+            delete_chunks(&kv, &chunk_keys);
+            return Ok(Response::from_status(413).with_body_text_plain("content too large"));
+        }
+
+        let chunk_key = format!("chunk_{nonce:016x}_{}", chunk_keys.len());
+        kv.build_insert()
+            .time_to_live(config::CHUNK_TTL)
+            .execute(&chunk_key, &buf[..])?;
+        chunk_keys.push(chunk_key);
+
+        if eof {
+            break;
+        }
     }
-    if body.len() > config::MAX_CONTENT_SIZE {
-        return Ok(Response::from_status(413).with_body_text_plain("content too large"));
+    if size < config::MIN_CONTENT_SIZE && buf != b"testing\n" {
+        return Ok(Response::from_status(400).with_body_text_plain("content too small"));
     }
 
     let url = req.get_url();
@@ -148,21 +203,19 @@ fn handle_put(mut req: Request) -> Result<Response, Error> {
         .next_back()
         .and_then(|v| (!v.is_empty()).then_some(v));
 
-    // Hash content and use a section of base58 encoding for the id
-    let hash = blake3::hash(&body);
+    // Use a section of base58 encoding of the hash for the id
+    let hash = hasher.finalize();
     let base = bs58::encode(hash.as_bytes()).into_string();
     let id = &base[..config::ID_SIZE];
     let key = &format!("file_{id}");
 
-    // Insert content to key value store
-    let kv = KVStore::open(config::KV_STORE)?.expect("kv store to exist");
+    // Insert content or manifest to key value store
     if kv.lookup(key).is_err() {
-        // try and detect mime type from magic byte sequences
-        let mime = infer::get(&body).map(|t| t.to_string()).unwrap_or_else(|| {
+        let mime = magic.map(|t| t.to_string()).unwrap_or_else(|| {
             // try to detect from the (optionally) given filename
             if let Some(mime) = filename.and_then(|f| mime_guess::from_path(f).into_iter().next()) {
                 mime.to_string()
-            } else if std::str::from_utf8(&body).is_ok() {
+            } else if utf8.finish() {
                 // if it's valid utf-8
                 mime::TEXT_PLAIN_UTF_8.to_string()
             } else {
@@ -171,13 +224,23 @@ fn handle_put(mut req: Request) -> Result<Response, Error> {
             }
         });
 
-        let meta = types::FileMetadata::new(hash.into(), mime);
+        let mut meta = types::FileMetadata::new(hash.into(), mime);
+        let value = if chunk_keys.is_empty() {
+            buf
+        } else {
+            meta.chunks = Some(chunk_keys.len());
+            meta.size = Some(size);
+            chunk_keys.join("\n").into_bytes()
+        };
 
         kv.build_insert()
             .metadata(&serde_json::to_string(&meta).unwrap())
             .time_to_live(config::KV_TTL)
-            .execute(key, body)?;
+            .execute(key, value)?;
         track_upload(&kv, id, filename.unwrap_or("undefined"))?;
+    } else {
+        // Content already exists, drop the duplicate chunks
+        delete_chunks(&kv, &chunk_keys);
     }
 
     println!("put {key} in storage");
@@ -195,6 +258,58 @@ fn handle_put(mut req: Request) -> Result<Response, Error> {
     Ok(Response::from_body(url + "\n")
         .with_content_type(mime::TEXT_PLAIN_UTF_8)
         .with_header("x-origin-url", origin_url))
+}
+
+/// Best effort removal of chunks, which otherwise expire on their own
+#[inline(always)]
+fn delete_chunks(kv: &KVStore, keys: &[String]) {
+    for key in keys {
+        if let Err(e) = kv.delete(key) {
+            println!("failed to delete {key}: {e}");
+        }
+    }
+}
+
+/// Incremental utf-8 validation, allowing multi-byte sequences to span chunk boundaries
+#[derive(Default)]
+struct Utf8Validator {
+    pending: Vec<u8>,
+    invalid: bool,
+}
+
+impl Utf8Validator {
+    fn update(&mut self, mut data: &[u8]) {
+        if self.invalid {
+            return;
+        }
+        // Complete a sequence carried over from the previous chunk
+        while !self.pending.is_empty() {
+            let Some((&byte, rest)) = data.split_first() else {
+                return;
+            };
+            self.pending.push(byte);
+            data = rest;
+            match std::str::from_utf8(&self.pending) {
+                Ok(_) => self.pending.clear(),
+                Err(e) if e.error_len().is_none() => {},
+                Err(_) => {
+                    self.invalid = true;
+                    return;
+                },
+            }
+        }
+        match std::str::from_utf8(data) {
+            Ok(_) => {},
+            Err(e) if e.error_len().is_none() => {
+                self.pending.extend_from_slice(&data[e.valid_up_to()..])
+            },
+            Err(_) => self.invalid = true,
+        }
+    }
+
+    fn finish(&self) -> bool {
+        !self.invalid && self.pending.is_empty()
+    }
 }
 
 /// Get upload count from the metadata, or fallback to the number of metric lines.
@@ -414,46 +529,33 @@ fn get_paste(
 ) -> Result<(BodyHandle, FileMetadata<'static>), Error> {
     let key = "file_".to_string() + id;
 
-    // Try to find content in cache
-    let string;
-    let mut meta;
-    if let Some(found) = cache::core::lookup(key.clone().into()).execute()? {
-        meta = serde_json::from_slice(&found.user_metadata()).expect("corrupted metadata");
+    // Try to find content in cache, otherwise load from the key value store (origin)
+    let (body, mut meta) = match cache::core::lookup(key.clone().into()).execute()? {
+        Some(found) => (
+            found.to_stream()?,
+            serde_json::from_slice(&found.user_metadata()).expect("corrupted metadata"),
+        ),
+        None => load_paste(&key)?,
+    };
 
-        if !is_markdown {
-            return Ok((found.to_stream()?.into_handle(), meta));
-        }
-
-        let mut buf = String::new();
-        found.to_stream()?.read_to_string(&mut buf)?;
-        string = buf;
-    } else {
-        // Otherwise, get content from key value store (origin)
-        let kv = KVStore::open(config::KV_STORE)?.expect("kv store to exist");
-        let mut res = kv.lookup(&key)?;
-        let meta_bytes = res.metadata().unwrap();
-        meta = serde_json::from_slice(&meta_bytes).expect("corrupted metadata");
-        let content = res.take_body_bytes();
-
-        // Write content & metadata to cache
-        let mut w = cache::core::insert(key.to_owned().into(), config::CACHE_TTL)
-            .surrogate_keys(["get"])
-            .user_metadata(meta_bytes)
-            .execute()?;
-        w.write_all(&content)?;
-        w.finish()?;
-
-        if !is_markdown {
-            return Ok((content.into(), meta));
-        }
-
-        string = String::from_utf8_lossy(&content).to_string();
+    if !is_markdown {
+        return Ok((body.into_handle(), meta));
     }
 
     // render markdown
+    let mut buf = Vec::new();
+    body.take(config::MAX_MARKDOWN_SIZE as u64 + 1)
+        .read_to_end(&mut buf)?;
+    let content = if buf.len() > config::MAX_MARKDOWN_SIZE {
+        format!(
+            "Content too large to render, maximum markdown size is {}",
+            humanize_bytes_binary!(config::MAX_MARKDOWN_SIZE)
+        )
+    } else {
+        markdown::to_html_with_options(&String::from_utf8_lossy(&buf), &markdown::Options::gfm())
+            .unwrap_or_else(|e| format!("Failed to parse github flavored markdown: {e}"))
+    };
     meta.mime = Cow::from("text/html");
-    let content = markdown::to_html_with_options(&string, &markdown::Options::gfm())
-        .unwrap_or_else(|e| format!("Failed to parse github flavored markdown: {e}"));
     let html = format!(
         include_str!("templates/markdown.html"),
         filename = filename,
@@ -461,4 +563,53 @@ fn get_paste(
         content = content
     );
     Ok((html.into(), meta))
+}
+
+/// Load content from the kv store, joining any chunks, and insert it into the cache.
+#[inline(always)]
+fn load_paste(key: &str) -> Result<(Body, FileMetadata<'static>), Error> {
+    let kv = KVStore::open(config::KV_STORE)?.expect("kv store to exist");
+    let mut res = kv.lookup(key)?;
+    let meta_bytes = res.metadata().unwrap();
+    let mut meta: FileMetadata = serde_json::from_slice(&meta_bytes).expect("corrupted metadata");
+
+    if meta.chunks.is_none() {
+        let content = res.take_body_bytes();
+        let mut w = cache::core::insert(key.to_owned().into(), config::CACHE_TTL)
+            .surrogate_keys(["get"])
+            .user_metadata(meta_bytes)
+            .execute()?;
+        w.write_all(&content)?;
+        w.finish()?;
+        return Ok((content.into(), meta));
+    }
+
+    // Cached content is stored whole, so drop the chunk info from its metadata
+    let size = meta.size.take().unwrap_or_default();
+    meta.chunks = None;
+    let mut cache = match size <= config::MAX_CACHE_SIZE {
+        true => Some(
+            cache::core::insert(key.to_owned().into(), config::CACHE_TTL)
+                .surrogate_keys(["get"])
+                .known_length(size as u64)
+                .user_metadata(serde_json::to_vec(&meta).unwrap().into())
+                .execute()?,
+        ),
+        false => None,
+    };
+
+    // Join chunks host side, holding at most a single chunk in memory
+    let mut body = Body::new();
+    for chunk_key in String::from_utf8(res.take_body_bytes())?.lines() {
+        let chunk = kv.lookup(chunk_key)?.take_body_bytes();
+        if let Some(w) = &mut cache {
+            w.write_all(&chunk)?;
+        }
+        body.append(chunk.into());
+    }
+    if let Some(w) = cache {
+        w.finish()?;
+    }
+
+    Ok((body, meta))
 }

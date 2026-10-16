@@ -270,19 +270,21 @@ fn kv_ttl(size: usize) -> Duration {
     Duration::from_secs_f64(min + (min - max) * x.powi(3))
 }
 
-/// Render the storage TTL curve as a text graph, one column per MiB and one row per two days
+/// Render the storage TTL curve as a text graph, one column per MiB, with rows spanning the min
+/// TTL at the bottom to the max TTL at the top
 fn ttl_graph() -> String {
-    const DAY: f64 = 86400.0;
-    const ROW_DAYS: u64 = 2;
+    const ROWS: u64 = 15;
     let max_mib = config::MAX_CONTENT_SIZE >> 20;
-    let max_days = config::MAX_KV_TTL.as_secs() / 86400;
-    let level = |mib: usize| (kv_ttl(mib << 20).as_secs_f64() / DAY / ROW_DAYS as f64).round() as u64;
+    let (min, max) = (config::MIN_KV_TTL.as_secs_f64(), config::MAX_KV_TTL.as_secs_f64());
+    let level = |mib: usize| {
+        ((kv_ttl(mib << 20).as_secs_f64() - min) / (max - min) * (ROWS - 1) as f64).round() as u64
+    };
 
     let mut graph = String::from("     days\n");
-    for row in (1..=max_days / ROW_DAYS).rev() {
-        let days = row * ROW_DAYS;
-        let mut line = match days % 10 {
-            0 => format!("     {days:>3} |"),
+    for row in (0..ROWS).rev() {
+        let mut line = match row {
+            0 => format!("     {:>3} |", config::MIN_KV_TTL.as_secs() / 86400),
+            r if r == ROWS - 1 => format!("     {:>3} |", config::MAX_KV_TTL.as_secs() / 86400),
             _ => "         |".to_string(),
         };
         for mib in 0..=max_mib {

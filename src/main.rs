@@ -1,6 +1,6 @@
 use std::borrow::Cow;
 use std::io::{BufRead, Read, Write};
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 
 use base64::Engine;
 use fastly::handle::BodyHandle;
@@ -21,7 +21,7 @@ mod config {
     /// Minimum content size in bytes
     pub const MIN_CONTENT_SIZE: usize = 32;
     /// Maximum content size in bytes
-    pub const MAX_CONTENT_SIZE: usize = 96 << 20;
+    pub const MAX_CONTENT_SIZE: usize = 48 << 20;
     /// Content larger than this is split into chunks, must fit in a single kv value
     pub const CHUNK_SIZE: usize = 24 << 20;
     /// Maximum content size to render as markdown
@@ -30,14 +30,13 @@ mod config {
     pub const MAX_CACHE_SIZE: usize = 100_000_000;
     /// Fastly key-value storage name
     pub const KV_STORE: &str = "paste storage";
-    /// TTL for content
-    pub const KV_TTL: Duration = Duration::from_secs(14 * 86400);
-    /// TTL for chunks, outliving the manifest that references them
-    pub const CHUNK_TTL: Duration = Duration::from_secs(15 * 86400);
+    /// Storage TTL bounds, scaled by content size on a cubic curve
+    pub const MIN_KV_TTL: Duration = Duration::from_secs(86400);
+    pub const MAX_KV_TTL: Duration = Duration::from_secs(30 * 86400);
+    /// Extra TTL for chunks, so they outlive the manifest that references them
+    pub const CHUNK_TTL_PADDING: Duration = Duration::from_secs(86400);
     /// Request cache ttl
-    /// 30.44 days in seconds, same as humantime's month unit
-    const MONTH: u64 = 2_630_016;
-    pub const CACHE_TTL: Duration = Duration::from_secs(3 * MONTH);
+    pub const CACHE_TTL: Duration = Duration::from_secs(30 * 86400);
     /// Key to store upload metrics under
     pub const UPLOAD_METRICS_KEY: &str = "_upload_metrics";
 }
@@ -181,9 +180,10 @@ fn handle_put(mut req: Request) -> Result<Response, Error> {
             return Ok(Response::from_status(413).with_body_text_plain("content too large"));
         }
 
+        // Final size is unknown without a content length, but ttl only shrinks as size grows
         let chunk_key = format!("chunk_{nonce:016x}_{}", chunk_keys.len());
         kv.build_insert()
-            .time_to_live(config::CHUNK_TTL)
+            .time_to_live(kv_ttl(content_length.unwrap_or(size).max(size)) + config::CHUNK_TTL_PADDING)
             .execute(&chunk_key, &buf[..])?;
         chunk_keys.push(chunk_key);
 
@@ -235,7 +235,7 @@ fn handle_put(mut req: Request) -> Result<Response, Error> {
 
         kv.build_insert()
             .metadata(&serde_json::to_string(&meta).unwrap())
-            .time_to_live(config::KV_TTL)
+            .time_to_live(kv_ttl(size))
             .execute(key, value)?;
         track_upload(&kv, id, filename.unwrap_or("undefined"))?;
     } else {
@@ -243,7 +243,7 @@ fn handle_put(mut req: Request) -> Result<Response, Error> {
         delete_chunks(&kv, &chunk_keys);
     }
 
-    println!("put {key} in storage");
+    println!("put {key} in storage for {}", format_duration(Duration::from_secs(kv_ttl(size).as_secs())));
 
     let url = format!(
         "{origin}/p/{id}{}",
@@ -258,6 +258,52 @@ fn handle_put(mut req: Request) -> Result<Response, Error> {
     Ok(Response::from_body(url + "\n")
         .with_content_type(mime::TEXT_PLAIN_UTF_8)
         .with_header("x-origin-url", origin_url))
+}
+
+/// Storage TTL for content of a given size, decaying on a cubic curve from the max to the min.
+///
+/// ttl = min + (min - max) * (size / max_size - 1)^3
+#[inline(always)]
+fn kv_ttl(size: usize) -> Duration {
+    let (min, max) = (config::MIN_KV_TTL.as_secs_f64(), config::MAX_KV_TTL.as_secs_f64());
+    let x = size.min(config::MAX_CONTENT_SIZE) as f64 / config::MAX_CONTENT_SIZE as f64 - 1.0;
+    Duration::from_secs_f64(min + (min - max) * x.powi(3))
+}
+
+/// Render the storage TTL curve as a text graph, one column per MiB and one row per two days
+fn ttl_graph() -> String {
+    const DAY: f64 = 86400.0;
+    const ROW_DAYS: u64 = 2;
+    let max_mib = config::MAX_CONTENT_SIZE >> 20;
+    let max_days = config::MAX_KV_TTL.as_secs() / 86400;
+    let level = |mib: usize| (kv_ttl(mib << 20).as_secs_f64() / DAY / ROW_DAYS as f64).round() as u64;
+
+    let mut graph = String::from("     days\n");
+    for row in (1..=max_days / ROW_DAYS).rev() {
+        let days = row * ROW_DAYS;
+        let mut line = match days % 10 {
+            0 => format!("     {days:>3} |"),
+            _ => "         |".to_string(),
+        };
+        for mib in 0..=max_mib {
+            // Fill down towards the next column so steep drops stay connected
+            let hi = level(mib);
+            let lo = if mib < max_mib { hi.min(level(mib + 1) + 1) } else { hi };
+            line.push(if (lo..=hi).contains(&row) { '*' } else { ' ' });
+        }
+        graph += line.trim_end();
+        graph.push('\n');
+    }
+    graph += &format!("         +{}\n", "-".repeat(max_mib + 1));
+
+    let mut ticks = vec![' '; max_mib + 3];
+    for tick in (0..=max_mib).step_by(8) {
+        for (i, c) in tick.to_string().chars().enumerate() {
+            ticks[tick + i] = c;
+        }
+    }
+    graph += &format!("          {} MiB", ticks.iter().collect::<String>().trim_end());
+    graph
 }
 
 /// Best effort removal of chunks, which otherwise expire on their own
@@ -420,7 +466,8 @@ fn handle_get(req: Request, nonce: usize) -> Result<Response, Error> {
             let json = serde_json::to_string_pretty(&json!({
                 "uploads": cnt,
                 "id_size": config::ID_SIZE,
-                "kv_ttl": format_duration(config::KV_TTL).to_string(),
+                "min_kv_ttl": format_duration(config::MIN_KV_TTL).to_string(),
+                "max_kv_ttl": format_duration(config::MAX_KV_TTL).to_string(),
                 "cache_ttl": format_duration(config::CACHE_TTL).to_string()
             }))?;
             Ok(Response::from_body(json).with_content_type(mime::APPLICATION_JSON))
@@ -512,7 +559,9 @@ fn get_usage(host: &str, is_browser: bool) -> Result<String, Error> {
             ""
         },
         max_size = humanize_bytes_binary!(config::MAX_CONTENT_SIZE),
-        kv_ttl = format_duration(config::KV_TTL).to_string(),
+        min_kv_ttl = format_duration(config::MIN_KV_TTL).to_string(),
+        max_kv_ttl = format_duration(config::MAX_KV_TTL).to_string(),
+        ttl_graph = ttl_graph(),
         cache_ttl = format_duration(config::CACHE_TTL).to_string(),
         upload_counter = upload_counter,
         footer = footer,

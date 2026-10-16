@@ -29,9 +29,15 @@
 
  NOTES
      * Maximum file size   :  {max_size}
-     * Storage TTL         :  {kv_ttl}
+     * Storage TTL         :  {max_kv_ttl} to {min_kv_ttl}, by file size
      * Regional cache TTL  :  {cache_ttl}
      * All time uploads    :  {upload_counter}
+
+     Storage TTL shrinks as files get larger:
+
+         ttl = min_ttl + (min_ttl - max_ttl) * (size / max_size - 1)^3
+
+{ttl_graph}
 
  EXAMPLES
      * Upload from stdin:

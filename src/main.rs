@@ -122,7 +122,17 @@ fn handle_put(mut req: Request) -> Result<Response, Error> {
     if !req.has_body() {
         return Ok(Response::from_status(400).with_body_text_plain("missing upload body"));
     }
-    let body = req.take_body_bytes();
+    // Reject oversized uploads before buffering anything
+    let content_length = req.get_content_length();
+    if content_length.is_some_and(|len| len > config::MAX_CONTENT_SIZE) {
+        return Ok(Response::from_status(413).with_body_text_plain("content too large"));
+    }
+
+    // Preallocate to avoid doubling reallocations, and cap reads for uploads without a length
+    let mut body = Vec::with_capacity(content_length.unwrap_or_default());
+    req.take_body()
+        .take(config::MAX_CONTENT_SIZE as u64 + 1)
+        .read_to_end(&mut body)?;
     if body.len() < config::MIN_CONTENT_SIZE && body != b"testing\n" {
         return Ok(Response::from_status(400).with_body_text_plain("content too small"));
     }

@@ -23,7 +23,7 @@ mod config {
     /// Maximum content size in bytes
     pub const MAX_CONTENT_SIZE: usize = 96 << 20;
     /// Content larger than this is split into chunks, must fit in a single kv value
-    pub const CHUNK_SIZE: usize = 16 << 20;
+    pub const CHUNK_SIZE: usize = 24 << 20;
     /// Maximum content size to render as markdown
     pub const MAX_MARKDOWN_SIZE: usize = CHUNK_SIZE;
     /// Maximum object size for the fastly cache
